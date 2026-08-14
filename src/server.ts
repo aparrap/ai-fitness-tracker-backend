@@ -9,6 +9,7 @@ const app = await buildApp({
   supabase,
   profileId: env.FITNESS_PROFILE_ID,
   corsOrigin: env.CORS_ORIGIN,
+  appleHealthIngestApiKey: env.APPLE_HEALTH_INGEST_API_KEY,
   logLevel: env.LOG_LEVEL
 });
 

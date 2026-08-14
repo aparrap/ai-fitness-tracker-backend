@@ -1,8 +1,13 @@
-import type { Database } from '../../types/database.types.js';
+import type { Database, Json } from '../../types/database.types.js';
 import type { CreateWorkoutInput } from './workout.schema.js';
 import { WorkoutRepository } from './workout.repository.js';
 
 type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
+
+export type WorkoutPersistenceOptions = {
+  ingestedVia?: string;
+  rawPayload?: Json;
+};
 
 export function derivePaceSecondsPerKm(
   durationSeconds?: number,
@@ -26,7 +31,57 @@ export class WorkoutService {
     return this.repository.getById(id);
   }
 
-  async create(input: CreateWorkoutInput): Promise<WorkoutRow> {
+
+  findLikelyDuplicate(input: CreateWorkoutInput): Promise<WorkoutRow | null> {
+    return this.repository.findLikelyDuplicate({
+      activityType: input.activityType,
+      startedOn: input.startedOn,
+      ...(input.durationSeconds !== undefined
+        ? { durationSeconds: input.durationSeconds }
+        : {}),
+      ...(input.distanceM !== undefined ? { distanceM: input.distanceM } : {})
+    });
+  }
+
+  async enrichExisting(
+    id: string,
+    input: CreateWorkoutInput
+  ): Promise<WorkoutRow> {
+    const derivedPace =
+      input.avgPaceSecondsPerKm ??
+      derivePaceSecondsPerKm(input.durationSeconds, input.distanceM);
+
+    return this.repository.updateById(id, {
+      ...(input.startedAt !== undefined ? { started_at: input.startedAt } : {}),
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.durationSeconds !== undefined
+        ? { duration_seconds: input.durationSeconds }
+        : {}),
+      ...(input.movingDurationSeconds !== undefined
+        ? { moving_duration_seconds: input.movingDurationSeconds }
+        : {}),
+      ...(input.distanceM !== undefined ? { distance_m: input.distanceM } : {}),
+      ...(input.activeEnergyKcal !== undefined
+        ? { active_energy_kcal: input.activeEnergyKcal }
+        : {}),
+      ...(input.avgHeartRateBpm !== undefined
+        ? { avg_heart_rate_bpm: input.avgHeartRateBpm }
+        : {}),
+      ...(input.maxHeartRateBpm !== undefined
+        ? { max_heart_rate_bpm: input.maxHeartRateBpm }
+        : {}),
+      ...(derivedPace !== null ? { avg_pace_seconds_per_km: derivedPace } : {}),
+      ...(input.elevationGainM !== undefined
+        ? { elevation_gain_m: input.elevationGainM }
+        : {}),
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  async create(
+    input: CreateWorkoutInput,
+    options: WorkoutPersistenceOptions = {}
+  ): Promise<WorkoutRow> {
     const derivedPace =
       input.avgPaceSecondsPerKm ??
       derivePaceSecondsPerKm(input.durationSeconds, input.distanceM);
@@ -59,8 +114,9 @@ export class WorkoutService {
       elevation_gain_m: input.elevationGainM ?? null,
       source_provider: input.sourceProvider,
       source_record_id: sourceRecordId,
-      ingested_via: 'backend_api',
-      notes: input.notes ?? null
+      ingested_via: options.ingestedVia ?? 'backend_api',
+      notes: input.notes ?? null,
+      raw_payload: options.rawPayload ?? null
     });
   }
 }

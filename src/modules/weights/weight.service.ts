@@ -1,8 +1,13 @@
-import type { Database } from '../../types/database.types.js';
+import type { Database, Json } from '../../types/database.types.js';
 import type { CreateWeightInput } from './weight.schema.js';
 import { WeightRepository } from './weight.repository.js';
 
 type WeightRow = Database['public']['Tables']['body_measurements']['Row'];
+
+export type WeightPersistenceOptions = {
+  ingestedVia?: string;
+  rawPayload?: Json;
+};
 
 export class WeightService {
   constructor(
@@ -14,7 +19,10 @@ export class WeightService {
     return this.repository.list(limit);
   }
 
-  async create(input: CreateWeightInput): Promise<WeightRow> {
+  async create(
+    input: CreateWeightInput,
+    options: WeightPersistenceOptions = {}
+  ): Promise<WeightRow> {
     const sourceRecordId =
       input.sourceRecordId ??
       `api-weight-${input.sourceProvider}-${input.measuredOn}`;
@@ -29,8 +37,9 @@ export class WeightService {
       body_fat_percent: input.bodyFatPercent ?? null,
       source_provider: input.sourceProvider,
       source_record_id: sourceRecordId,
-      ingested_via: 'backend_api',
-      notes: input.notes ?? null
+      ingested_via: options.ingestedVia ?? 'backend_api',
+      notes: input.notes ?? null,
+      raw_payload: options.rawPayload ?? null
     });
   }
 }

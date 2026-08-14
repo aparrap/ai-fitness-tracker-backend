@@ -9,6 +9,7 @@ const envSchema = z.object({
   SUPABASE_URL: z.url(),
   SUPABASE_SECRET_KEY: z.string().min(1),
   FITNESS_PROFILE_ID: z.uuid(),
+  APPLE_HEALTH_INGEST_API_KEY: z.string().min(32),
   CORS_ORIGIN: z.string().default('http://localhost:3001')
 });
 

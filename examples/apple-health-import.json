@@ -1,0 +1,43 @@
+{
+  "syncId": "iphone-2026-08-14T20:30:00Z-001",
+  "exportedAt": "2026-08-14T20:30:00Z",
+  "device": {
+    "name": "iPhone",
+    "model": "iPhone",
+    "systemVersion": "iOS",
+    "appVersion": "0.1.0"
+  },
+  "weights": [
+    {
+      "sourceRecordId": "apple-health-weight-example-uuid",
+      "measuredAt": "2026-08-14T07:00:00+01:00",
+      "measuredOn": "2026-08-14",
+      "weightKg": 102.7,
+      "heightCm": 175
+    }
+  ],
+  "workouts": [
+    {
+      "sourceRecordId": "apple-health-workout-example-uuid",
+      "activityType": "running",
+      "title": "Outdoor Run",
+      "startedAt": "2026-08-14T18:00:00+01:00",
+      "startedOn": "2026-08-14",
+      "endedAt": "2026-08-14T18:38:04+01:00",
+      "distanceM": 5240,
+      "activeEnergyKcal": 586,
+      "heartRateSamples": [
+        {
+          "sourceRecordId": "apple-health-hr-example-1",
+          "sampledAt": "2026-08-14T18:00:30+01:00",
+          "bpm": 128
+        },
+        {
+          "sourceRecordId": "apple-health-hr-example-2",
+          "sampledAt": "2026-08-14T18:01:00+01:00",
+          "bpm": 136
+        }
+      ]
+    }
+  ]
+}

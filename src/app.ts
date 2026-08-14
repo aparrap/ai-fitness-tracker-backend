@@ -2,7 +2,11 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 import type { FitnessSupabaseClient } from './lib/supabase.js';
-import { NotFoundError, RepositoryError } from './shared/errors.js';
+import {
+  NotFoundError,
+  RepositoryError,
+  UnauthorizedError
+} from './shared/errors.js';
 import { WeightRepository } from './modules/weights/weight.repository.js';
 import { WeightService } from './modules/weights/weight.service.js';
 import { registerWeightRoutes } from './modules/weights/weight.routes.js';
@@ -11,16 +15,24 @@ import { WorkoutService } from './modules/workouts/workout.service.js';
 import { registerWorkoutRoutes } from './modules/workouts/workout.routes.js';
 import { StatsService } from './modules/stats/stats.service.js';
 import { registerStatsRoutes } from './modules/stats/stats.routes.js';
+import { WorkoutMetricRepository } from './modules/workout-metrics/workout-metric.repository.js';
+import { registerWorkoutMetricRoutes } from './modules/workout-metrics/workout-metric.routes.js';
+import { DataSyncRepository } from './modules/syncs/data-sync.repository.js';
+import { WorkoutSourceRepository } from './modules/workout-sources/workout-source.repository.js';
+import { AppleHealthImportService } from './integrations/apple-health/apple-health.import.service.js';
+import { registerAppleHealthRoutes } from './integrations/apple-health/apple-health.routes.js';
 
 export type BuildAppOptions = {
   supabase: FitnessSupabaseClient;
   profileId: string;
   corsOrigin: string;
+  appleHealthIngestApiKey: string;
   logLevel?: string;
 };
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
+    bodyLimit: 15 * 1024 * 1024,
     logger: {
       level: options.logLevel ?? 'info'
     }
@@ -35,19 +47,40 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const weightRepository = new WeightRepository(options.supabase, options.profileId);
   const workoutRepository = new WorkoutRepository(options.supabase, options.profileId);
+  const metricRepository = new WorkoutMetricRepository(options.supabase);
+  const syncRepository = new DataSyncRepository(options.supabase, options.profileId);
+  const workoutSourceRepository = new WorkoutSourceRepository(
+    options.supabase,
+    options.profileId
+  );
 
   const weightService = new WeightService(weightRepository, options.profileId);
   const workoutService = new WorkoutService(workoutRepository, options.profileId);
   const statsService = new StatsService(weightRepository, workoutRepository);
+  const appleHealthImportService = new AppleHealthImportService(
+    weightService,
+    workoutService,
+    metricRepository,
+    workoutSourceRepository,
+    syncRepository
+  );
 
   app.get('/health', async () => ({
     status: 'ok',
-    service: 'ai-fitness-tracker-backend'
+    service: 'ai-fitness-tracker-backend',
+    version: '0.2.0'
   }));
 
   await registerWeightRoutes(app, weightService);
   await registerWorkoutRoutes(app, workoutService);
+  await registerWorkoutMetricRoutes(app, workoutService, metricRepository);
   await registerStatsRoutes(app, statsService);
+  await registerAppleHealthRoutes(
+    app,
+    appleHealthImportService,
+    syncRepository,
+    options.appleHealthIngestApiKey
+  );
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -55,6 +88,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         error: 'validation_error',
         message: 'Request validation failed',
         details: error.issues
+      });
+    }
+
+    if (error instanceof UnauthorizedError) {
+      return reply.code(401).send({
+        error: 'unauthorized',
+        message: error.message
       });
     }
 

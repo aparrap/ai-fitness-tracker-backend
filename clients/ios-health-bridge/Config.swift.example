@@ -1,0 +1,12 @@
+import Foundation
+
+enum AppConfig {
+    static let backendURL = URL(string: "https://ai-fitness-tracker-backend-0a0k.onrender.com")!
+
+    // Use the same value as APPLE_HEALTH_INGEST_API_KEY in Render.
+    // For this personal MVP it is compiled into the app; migrate to
+    // Supabase Auth before distributing the app to anyone else.
+    static let syncWeights = false
+
+    static let ingestAPIKey = "REPLACE_WITH_YOUR_64_CHAR_INGEST_KEY"
+}

@@ -314,3 +314,27 @@ AI boundary:
 5. high-resolution HR samples in `workout_metric_samples`
 6. OpenAI analysis provider using the Responses API
 7. scheduled analysis and dashboard/mobile frontend
+
+
+## Phase 2: Apple Health
+
+Phase 2 is implemented in this repository.
+
+See:
+
+```text
+PHASE_2_APPLE_HEALTH.md
+```
+
+It adds secure/idempotent HealthKit batch ingestion, source-level workout deduplication,
+high-resolution heart-rate samples, sync status, and an iOS SwiftUI source kit under:
+
+```text
+clients/ios-health-bridge/
+```
+
+The hosted backend target is:
+
+```text
+https://ai-fitness-tracker-backend-0a0k.onrender.com
+```
