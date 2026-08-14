@@ -1,0 +1,36 @@
+{
+  "name": "ai-fitness-tracker-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend API for the AI Fitness Tracker using Node.js, TypeScript, Fastify and Supabase.",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:types": "supabase gen types typescript --linked > src/types/database.types.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@supabase/supabase-js": "^2.112.3",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.11.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "packageManager": "pnpm@10.15.0"
+}
