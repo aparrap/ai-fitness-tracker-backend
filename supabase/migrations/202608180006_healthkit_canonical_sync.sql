@@ -90,7 +90,11 @@ begin
 
   if old.association_kind in ('workout_associated', 'time_window')
      and new.association_kind = 'time_window' then
-    return old;
+    -- Keep stable ownership, but do not throw away legitimate corrections to
+    -- value, timestamps, units or provenance delivered by a later sync.
+    new.workout_id := old.workout_id;
+    new.association_kind := old.association_kind;
+    return new;
   end if;
 
   return new;
