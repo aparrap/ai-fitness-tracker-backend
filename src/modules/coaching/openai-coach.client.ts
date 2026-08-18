@@ -5,17 +5,36 @@ import {
   type WorkoutCoachingEvaluation
 } from './coaching.types.js';
 
+const shortText = { type: 'string', minLength: 1, maxLength: 300 } as const;
+
 const COACHING_OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    headline: { type: 'string' },
-    summary: { type: 'string' },
-    positives: { type: 'array', items: { type: 'string' } },
-    watchouts: { type: 'array', items: { type: 'string' } },
-    nextWorkoutFocus: { type: 'array', items: { type: 'string' } },
+    headline: { type: 'string', minLength: 1, maxLength: 160 },
+    summary: { type: 'string', minLength: 1, maxLength: 1200 },
+    positives: {
+      type: 'array',
+      maxItems: 5,
+      items: shortText
+    },
+    watchouts: {
+      type: 'array',
+      maxItems: 5,
+      items: shortText
+    },
+    nextWorkoutFocus: {
+      type: 'array',
+      maxItems: 5,
+      items: shortText
+    },
     confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
-    safetyNote: { type: ['string', 'null'] }
+    safetyNote: {
+      anyOf: [
+        { type: 'string', maxLength: 500 },
+        { type: 'null' }
+      ]
+    }
   },
   required: [
     'headline',
