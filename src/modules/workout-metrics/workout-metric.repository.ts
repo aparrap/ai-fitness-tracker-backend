@@ -74,6 +74,37 @@ export class WorkoutMetricRepository {
     return rows;
   }
 
+  async pageByWorkoutMany(
+    workoutId: string,
+    metricNames: string[],
+    page: number,
+    pageSize: number
+  ): Promise<{ items: MetricRow[]; nextPage: number | null }> {
+    if (metricNames.length === 0) return { items: [], nextPage: null };
+
+    const offset = (page - 1) * pageSize;
+    const fetchSize = pageSize + 1;
+    const { data, error } = await this.supabase
+      .from('workout_metric_samples')
+      .select('*')
+      .eq('workout_id', workoutId)
+      .in('metric_name', metricNames)
+      .order('sampled_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + fetchSize - 1);
+
+    if (error) {
+      throw new RepositoryError('Failed to page workout metric samples', error.message);
+    }
+
+    const rows = data ?? [];
+    const hasMore = rows.length > pageSize;
+    return {
+      items: rows.slice(0, pageSize),
+      nextPage: hasMore ? page + 1 : null
+    };
+  }
+
   async upsertAppleHealthSamples(
     workoutId: string,
     workoutStartedAt: string,
