@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Database } from '../../types/database.types.js';
 import type { RunningTrendService } from '../fitness-analytics/running-trend.service.js';
 import type { CoachingRepository } from './coaching.repository.js';
@@ -7,6 +8,10 @@ import type {
 } from './coaching.types.js';
 
 type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
+
+function inputHash(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
 
 export class WorkoutCoachingService {
   constructor(
@@ -49,11 +54,27 @@ export class WorkoutCoachingService {
       analysis: params.analysis,
       trends
     };
+    const hash = inputHash(inputSnapshot);
+    const existing = await this.repository.getCurrent(params.workout.id);
+
+    if (
+      existing?.input_hash === hash &&
+      existing.model === this.client.model &&
+      existing.summary
+    ) {
+      return {
+        workoutId: params.workout.id,
+        sourceRecordId: params.sourceRecordId,
+        status: 'unchanged',
+        summary: existing.summary
+      };
+    }
 
     const evaluation = await this.client.evaluate(inputSnapshot);
     await this.repository.upsert({
       workoutId: params.workout.id,
       model: this.client.model,
+      inputHash: hash,
       evaluation,
       inputSnapshot
     });
