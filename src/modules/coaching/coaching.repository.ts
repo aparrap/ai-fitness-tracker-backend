@@ -8,9 +8,7 @@ import {
 } from './coaching.types.js';
 
 type AnalysisRow = Database['public']['Tables']['ai_analyses']['Row'];
-type AnalysisRowWithHash = AnalysisRow & { input_hash: string | null };
 type AnalysisInsert = Database['public']['Tables']['ai_analyses']['Insert'];
-type AnalysisInsertWithHash = AnalysisInsert & { input_hash: string };
 
 export class CoachingRepository {
   constructor(
@@ -36,7 +34,7 @@ export class CoachingRepository {
     return data;
   }
 
-  async getCurrent(workoutId: string): Promise<AnalysisRowWithHash | null> {
+  async getCurrent(workoutId: string): Promise<AnalysisRow | null> {
     const { data, error } = await this.supabase
       .from('ai_analyses')
       .select('*')
@@ -50,7 +48,7 @@ export class CoachingRepository {
       throw new RepositoryError('Failed to load current workout coaching evaluation', error.message);
     }
 
-    return data as AnalysisRowWithHash | null;
+    return data;
   }
 
   async upsert(params: {
@@ -61,7 +59,7 @@ export class CoachingRepository {
     inputSnapshot: unknown;
   }): Promise<AnalysisRow> {
     const now = new Date().toISOString();
-    const row: AnalysisInsertWithHash = {
+    const row: AnalysisInsert = {
       profile_id: this.profileId,
       workout_id: params.workoutId,
       analysis_type: WORKOUT_COACHING_ANALYSIS_TYPE,
