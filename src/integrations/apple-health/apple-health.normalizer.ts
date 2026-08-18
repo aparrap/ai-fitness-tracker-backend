@@ -2,7 +2,8 @@ import type { CreateWeightInput } from '../../modules/weights/weight.schema.js';
 import type { CreateWorkoutInput } from '../../modules/workouts/workout.schema.js';
 import type {
   AppleHealthWeightPayload,
-  AppleHealthWorkoutPayload
+  AppleHealthWorkoutPayload,
+  AppleHealthWorkoutSamplePayload
 } from './apple-health.schema.js';
 
 function mean(values: number[]): number | undefined {
@@ -10,6 +11,35 @@ function mean(values: number[]): number | undefined {
   return Math.round(
     (values.reduce((total, value) => total + value, 0) / values.length) * 100
   ) / 100;
+}
+
+export function normalizeAppleHealthWorkoutSamples(
+  payload: AppleHealthWorkoutPayload
+): AppleHealthWorkoutSamplePayload[] {
+  const bySourceRecordId = new Map<string, AppleHealthWorkoutSamplePayload>();
+
+  // Load legacy samples first. If the new generic payload contains the same HealthKit UUID,
+  // the richer generic representation wins below.
+  for (const sample of payload.heartRateSamples) {
+    bySourceRecordId.set(sample.sourceRecordId, {
+      sourceRecordId: sample.sourceRecordId,
+      metric: 'heart_rate',
+      sampledAt: sample.sampledAt,
+      value: sample.bpm,
+      unit: 'bpm',
+      associationKind: 'workout_associated',
+      aggregation: 'instantaneous'
+    });
+  }
+
+  for (const sample of payload.samples) {
+    bySourceRecordId.set(sample.sourceRecordId, sample);
+  }
+
+  return [...bySourceRecordId.values()].sort(
+    (left, right) =>
+      new Date(left.sampledAt).getTime() - new Date(right.sampledAt).getTime()
+  );
 }
 
 export function normalizeAppleHealthWeight(
@@ -36,7 +66,9 @@ export function normalizeAppleHealthWorkout(
     Math.round((ended.getTime() - started.getTime()) / 1000)
   );
 
-  const heartRates = payload.heartRateSamples.map((sample) => sample.bpm);
+  const heartRates = normalizeAppleHealthWorkoutSamples(payload)
+    .filter((sample) => sample.metric === 'heart_rate')
+    .map((sample) => sample.value);
   const derivedAverageHeartRate = mean(heartRates);
   const derivedMaxHeartRate =
     heartRates.length > 0 ? Math.max(...heartRates) : undefined;
@@ -48,7 +80,9 @@ export function normalizeAppleHealthWorkout(
     durationSeconds: payload.durationSeconds ?? derivedDurationSeconds,
     sourceProvider: 'apple_health',
     sourceRecordId: payload.sourceRecordId,
-    notes: 'Imported from Apple Health',
+    notes: payload.sourceName
+      ? `Imported from Apple Health (${payload.sourceName})`
+      : 'Imported from Apple Health',
     ...(payload.title !== undefined ? { title: payload.title } : {}),
     ...(payload.distanceM !== undefined ? { distanceM: payload.distanceM } : {}),
     ...(payload.activeEnergyKcal !== undefined

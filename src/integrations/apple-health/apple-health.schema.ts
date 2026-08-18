@@ -3,10 +3,73 @@ import { z } from 'zod';
 const timestamp = z.iso.datetime({ offset: true });
 
 export const appleHealthHeartRateSampleSchema = z.object({
-  sourceRecordId: z.string().min(1).max(200),
+  sourceRecordId: z.string().min(1).max(300),
   sampledAt: timestamp,
   bpm: z.number().positive().max(260)
 });
+
+export const appleHealthWorkoutSampleMetricSchema = z.enum([
+  'heart_rate',
+  'running_speed',
+  'distance',
+  'active_energy',
+  'step_count',
+  'running_power',
+  'running_stride_length',
+  'running_vertical_oscillation',
+  'running_ground_contact_time'
+]);
+
+export const appleHealthWorkoutSampleSchema = z
+  .object({
+    sourceRecordId: z.string().min(1).max(300),
+    metric: appleHealthWorkoutSampleMetricSchema,
+    sampledAt: timestamp,
+    sampleEndedAt: timestamp.optional(),
+    value: z.number(),
+    unit: z.string().min(1).max(40),
+    associationKind: z
+      .enum(['workout_associated', 'time_window'])
+      .default('workout_associated'),
+    aggregation: z
+      .enum(['instantaneous', 'interval_delta', 'cumulative'])
+      .optional(),
+    sourceName: z.string().max(200).optional(),
+    sourceBundleIdentifier: z.string().max(300).optional()
+  })
+  .superRefine((sample, ctx) => {
+    if (
+      sample.sampleEndedAt &&
+      new Date(sample.sampleEndedAt).getTime() < new Date(sample.sampledAt).getTime()
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'sampleEndedAt must be greater than or equal to sampledAt',
+        path: ['sampleEndedAt']
+      });
+    }
+
+    if (sample.metric === 'heart_rate' && (sample.value <= 0 || sample.value > 260)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'heart_rate value must be between 0 and 260 bpm',
+        path: ['value']
+      });
+    }
+
+    if (
+      ['running_speed', 'distance', 'active_energy', 'step_count'].includes(
+        sample.metric
+      ) &&
+      sample.value < 0
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `${sample.metric} cannot be negative`,
+        path: ['value']
+      });
+    }
+  });
 
 export const appleHealthWeightSchema = z.object({
   sourceRecordId: z.string().min(1).max(200),
@@ -30,6 +93,10 @@ export const appleHealthWorkoutSchema = z
     elevationGainM: z.number().optional(),
     avgHeartRateBpm: z.number().positive().max(260).optional(),
     maxHeartRateBpm: z.number().positive().max(260).optional(),
+    sourceName: z.string().max(200).optional(),
+    sourceBundleIdentifier: z.string().max(300).optional(),
+    samples: z.array(appleHealthWorkoutSampleSchema).max(100000).default([]),
+    // Backward compatibility with the Phase 2 iOS bridge.
     heartRateSamples: z.array(appleHealthHeartRateSampleSchema).max(50000).default([])
   })
   .refine(
@@ -60,4 +127,10 @@ export type AppleHealthWeightPayload = z.infer<typeof appleHealthWeightSchema>;
 export type AppleHealthWorkoutPayload = z.infer<typeof appleHealthWorkoutSchema>;
 export type AppleHealthHeartRateSamplePayload = z.infer<
   typeof appleHealthHeartRateSampleSchema
+>;
+export type AppleHealthWorkoutSamplePayload = z.infer<
+  typeof appleHealthWorkoutSampleSchema
+>;
+export type AppleHealthWorkoutSampleMetric = z.infer<
+  typeof appleHealthWorkoutSampleMetricSchema
 >;

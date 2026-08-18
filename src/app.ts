@@ -17,6 +17,12 @@ import { StatsService } from './modules/stats/stats.service.js';
 import { registerStatsRoutes } from './modules/stats/stats.routes.js';
 import { WorkoutMetricRepository } from './modules/workout-metrics/workout-metric.repository.js';
 import { registerWorkoutMetricRoutes } from './modules/workout-metrics/workout-metric.routes.js';
+import { WorkoutSplitRepository } from './modules/workout-splits/workout-split.repository.js';
+import { WorkoutSplitService } from './modules/workout-splits/workout-split.service.js';
+import { registerWorkoutSplitRoutes } from './modules/workout-splits/workout-split.routes.js';
+import { WorkoutAnalysisService } from './modules/fitness-analytics/workout-analysis.service.js';
+import { RunningTrendService } from './modules/fitness-analytics/running-trend.service.js';
+import { registerFitnessAnalyticsRoutes } from './modules/fitness-analytics/fitness-analytics.routes.js';
 import { DataSyncRepository } from './modules/syncs/data-sync.repository.js';
 import { WorkoutSourceRepository } from './modules/workout-sources/workout-source.repository.js';
 import { AppleHealthImportService } from './integrations/apple-health/apple-health.import.service.js';
@@ -48,6 +54,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const weightRepository = new WeightRepository(options.supabase, options.profileId);
   const workoutRepository = new WorkoutRepository(options.supabase, options.profileId);
   const metricRepository = new WorkoutMetricRepository(options.supabase);
+  const splitRepository = new WorkoutSplitRepository(options.supabase);
   const syncRepository = new DataSyncRepository(options.supabase, options.profileId);
   const workoutSourceRepository = new WorkoutSourceRepository(
     options.supabase,
@@ -57,23 +64,44 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const weightService = new WeightService(weightRepository, options.profileId);
   const workoutService = new WorkoutService(workoutRepository, options.profileId);
   const statsService = new StatsService(weightRepository, workoutRepository);
+  const splitService = new WorkoutSplitService(
+    workoutService,
+    metricRepository,
+    splitRepository
+  );
+  const workoutAnalysisService = new WorkoutAnalysisService(
+    workoutService,
+    metricRepository,
+    splitService
+  );
+  const runningTrendService = new RunningTrendService(
+    workoutService,
+    workoutAnalysisService
+  );
   const appleHealthImportService = new AppleHealthImportService(
     weightService,
     workoutService,
     metricRepository,
     workoutSourceRepository,
-    syncRepository
+    syncRepository,
+    splitService
   );
 
   app.get('/health', async () => ({
     status: 'ok',
     service: 'ai-fitness-tracker-backend',
-    version: '0.2.0'
+    version: '0.3.0'
   }));
 
   await registerWeightRoutes(app, weightService);
   await registerWorkoutRoutes(app, workoutService);
   await registerWorkoutMetricRoutes(app, workoutService, metricRepository);
+  await registerWorkoutSplitRoutes(app, workoutService, splitService);
+  await registerFitnessAnalyticsRoutes(
+    app,
+    workoutAnalysisService,
+    runningTrendService
+  );
   await registerStatsRoutes(app, statsService);
   await registerAppleHealthRoutes(
     app,
