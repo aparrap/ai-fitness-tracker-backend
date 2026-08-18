@@ -161,25 +161,15 @@ export const appleHealthWorkoutSchema = z
     startedAt: timestamp,
     startedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endedAt: timestamp,
-    durationSeconds: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(MAX_WORKOUT_DURATION_SECONDS)
-      .optional(),
+    durationSeconds: z.number().int().nonnegative().max(MAX_WORKOUT_DURATION_SECONDS).optional(),
     distanceM: z.number().nonnegative().max(MAX_WORKOUT_DISTANCE_M).optional(),
-    activeEnergyKcal: z
-      .number()
-      .nonnegative()
-      .max(MAX_WORKOUT_ACTIVE_ENERGY_KCAL)
-      .optional(),
+    activeEnergyKcal: z.number().nonnegative().max(MAX_WORKOUT_ACTIVE_ENERGY_KCAL).optional(),
     elevationGainM: z.number().min(-20000).max(20000).optional(),
     avgHeartRateBpm: z.number().positive().max(260).optional(),
     maxHeartRateBpm: z.number().positive().max(260).optional(),
     sourceName: z.string().max(200).optional(),
     sourceBundleIdentifier: z.string().max(300).optional(),
     samples: z.array(appleHealthWorkoutSampleSchema).max(MAX_WORKOUT_SAMPLES).default([]),
-    // Backward compatibility with the Phase 2 iOS bridge.
     heartRateSamples: z.array(appleHealthHeartRateSampleSchema).max(50000).default([])
   })
   .superRefine((workout, ctx) => {
@@ -188,64 +178,35 @@ export const appleHealthWorkoutSchema = z
     const timestampDurationSeconds = (endedAtMs - startedAtMs) / 1000;
 
     if (endedAtMs < startedAtMs) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'endedAt must be greater than or equal to startedAt',
-        path: ['endedAt']
-      });
+      ctx.addIssue({ code: 'custom', message: 'endedAt must be greater than or equal to startedAt', path: ['endedAt'] });
     } else if (timestampDurationSeconds > MAX_WORKOUT_DURATION_SECONDS) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `Workout timestamps may span at most ${MAX_WORKOUT_DURATION_SECONDS} seconds`,
-        path: ['endedAt']
-      });
+      ctx.addIssue({ code: 'custom', message: `Workout timestamps may span at most ${MAX_WORKOUT_DURATION_SECONDS} seconds`, path: ['endedAt'] });
     }
 
     if (workout.samples.length + workout.heartRateSamples.length > MAX_WORKOUT_SAMPLES) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `A workout may contain at most ${MAX_WORKOUT_SAMPLES} total samples`,
-        path: ['samples']
-      });
+      ctx.addIssue({ code: 'custom', message: `A workout may contain at most ${MAX_WORKOUT_SAMPLES} total samples`, path: ['samples'] });
     }
 
     workout.samples.forEach((sample, index) => {
       const sampleStartMs = new Date(sample.sampledAt).getTime();
-      const sampleEndMs = sample.sampleEndedAt
-        ? new Date(sample.sampleEndedAt).getTime()
-        : sampleStartMs;
+      const sampleEndMs = sample.sampleEndedAt ? new Date(sample.sampleEndedAt).getTime() : sampleStartMs;
       if (sampleEndMs < startedAtMs || sampleStartMs > endedAtMs) {
-        ctx.addIssue({
-          code: 'custom',
-          message: 'Workout samples must overlap the workout interval',
-          path: ['samples', index, 'sampledAt']
-        });
+        ctx.addIssue({ code: 'custom', message: 'Workout samples must overlap the workout interval', path: ['samples', index, 'sampledAt'] });
       }
     });
 
     workout.heartRateSamples.forEach((sample, index) => {
       const sampledAtMs = new Date(sample.sampledAt).getTime();
       if (sampledAtMs < startedAtMs || sampledAtMs > endedAtMs) {
-        ctx.addIssue({
-          code: 'custom',
-          message: 'Legacy heart-rate samples must fall within the workout interval',
-          path: ['heartRateSamples', index, 'sampledAt']
-        });
+        ctx.addIssue({ code: 'custom', message: 'Legacy heart-rate samples must fall within the workout interval', path: ['heartRateSamples', index, 'sampledAt'] });
       }
     });
 
     const distanceAggregationModes = new Set(
-      workout.samples
-        .filter((sample) => sample.metric === 'distance')
-        .map((sample) => sample.aggregation)
+      workout.samples.filter((sample) => sample.metric === 'distance').map((sample) => sample.aggregation)
     );
-
     if (distanceAggregationModes.size > 1) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'distance samples must use one aggregation mode per workout',
-        path: ['samples']
-      });
+      ctx.addIssue({ code: 'custom', message: 'distance samples must use one aggregation mode per workout', path: ['samples'] });
     }
   });
 
@@ -261,18 +222,13 @@ export const appleHealthImportSchema = z.object({
     })
     .optional(),
   weights: z.array(appleHealthWeightSchema).max(1000).default([]),
-  workouts: z.array(appleHealthWorkoutSchema).max(500).default([])
+  workouts: z.array(appleHealthWorkoutSchema).max(500).default([]),
+  deletedWorkoutSourceRecordIds: z.array(z.string().min(1).max(300)).max(500).default([])
 });
 
 export type AppleHealthImportInput = z.infer<typeof appleHealthImportSchema>;
 export type AppleHealthWeightPayload = z.infer<typeof appleHealthWeightSchema>;
 export type AppleHealthWorkoutPayload = z.infer<typeof appleHealthWorkoutSchema>;
-export type AppleHealthHeartRateSamplePayload = z.infer<
-  typeof appleHealthHeartRateSampleSchema
->;
-export type AppleHealthWorkoutSamplePayload = z.infer<
-  typeof appleHealthWorkoutSampleSchema
->;
-export type AppleHealthWorkoutSampleMetric = z.infer<
-  typeof appleHealthWorkoutSampleMetricSchema
->;
+export type AppleHealthHeartRateSamplePayload = z.infer<typeof appleHealthHeartRateSampleSchema>;
+export type AppleHealthWorkoutSamplePayload = z.infer<typeof appleHealthWorkoutSampleSchema>;
+export type AppleHealthWorkoutSampleMetric = z.infer<typeof appleHealthWorkoutSampleMetricSchema>;

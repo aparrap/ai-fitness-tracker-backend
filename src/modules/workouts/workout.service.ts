@@ -50,15 +50,17 @@ export class WorkoutService {
     });
   }
 
-  async enrichExisting(
-    id: string,
-    input: CreateWorkoutInput
-  ): Promise<WorkoutRow> {
+  softDelete(id: string): Promise<boolean> {
+    return this.repository.softDelete(id);
+  }
+
+  async enrichExisting(id: string, input: CreateWorkoutInput): Promise<WorkoutRow> {
     const derivedPace =
       input.avgPaceSecondsPerKm ??
       derivePaceSecondsPerKm(input.durationSeconds, input.distanceM);
 
     return this.repository.updateById(id, {
+      deleted_at: null,
       ...(input.startedAt !== undefined ? { started_at: input.startedAt } : {}),
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.durationSeconds !== undefined
@@ -123,7 +125,8 @@ export class WorkoutService {
       source_record_id: sourceRecordId,
       ingested_via: options.ingestedVia ?? 'backend_api',
       notes: input.notes ?? null,
-      raw_payload: options.rawPayload ?? null
+      raw_payload: options.rawPayload ?? null,
+      deleted_at: null
     });
   }
 }

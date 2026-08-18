@@ -5,6 +5,8 @@ import type { WorkoutMetricRepository } from '../../modules/workout-metrics/work
 import type { WorkoutSourceRepository } from '../../modules/workout-sources/workout-source.repository.js';
 import type { WorkoutSplitService } from '../../modules/workout-splits/workout-split.service.js';
 import type { WorkoutAnalysisService } from '../../modules/fitness-analytics/workout-analysis.service.js';
+import type { WorkoutCoachingService } from '../../modules/coaching/workout-coaching.service.js';
+import type { CoachingSyncResult } from '../../modules/coaching/coaching.types.js';
 import type {
   DataSyncRepository,
   SyncCounts
@@ -16,10 +18,21 @@ import {
   normalizeAppleHealthWorkoutSamples
 } from './apple-health.normalizer.js';
 
+const MAX_COACHING_PER_SYNC = 3;
+const COACHING_RECENCY_MS = 48 * 60 * 60 * 1000;
+
+type CoachingCandidate = {
+  workout: Awaited<ReturnType<WorkoutService['getById']>>;
+  sourceRecordId: string;
+  endedAtMs: number;
+  analysis: unknown;
+};
+
 export type AppleHealthImportResult = SyncCounts & {
   syncId: string;
   status: 'completed';
   replayed: boolean;
+  coaching: CoachingSyncResult[];
 };
 
 export class AppleHealthImportService {
@@ -30,7 +43,8 @@ export class AppleHealthImportService {
     private readonly workoutSourceRepository: WorkoutSourceRepository,
     private readonly syncRepository: DataSyncRepository,
     private readonly splitService?: WorkoutSplitService,
-    private readonly workoutAnalysisService?: WorkoutAnalysisService
+    private readonly workoutAnalysisService?: WorkoutAnalysisService,
+    private readonly coachingService?: WorkoutCoachingService
   ) {}
 
   async import(input: AppleHealthImportInput): Promise<AppleHealthImportResult> {
@@ -44,7 +58,9 @@ export class AppleHealthImportService {
         weightsProcessed: existing.weights_processed,
         workoutsProcessed: existing.workouts_processed,
         workoutsMatched: existing.workouts_matched,
-        metricSamplesProcessed: existing.metric_samples_processed
+        workoutsDeleted: existing.workouts_deleted,
+        metricSamplesProcessed: existing.metric_samples_processed,
+        coaching: await this.loadReplayCoaching(input)
       };
     }
 
@@ -58,10 +74,24 @@ export class AppleHealthImportService {
       weightsProcessed: 0,
       workoutsProcessed: 0,
       workoutsMatched: 0,
+      workoutsDeleted: 0,
       metricSamplesProcessed: 0
     };
+    const coachingCandidates: CoachingCandidate[] = [];
 
     try {
+      // Apply deletions first. If the same HealthKit UUID is also present in this batch,
+      // the subsequent workout import restores it and becomes authoritative.
+      for (const sourceRecordId of new Set(input.deletedWorkoutSourceRecordIds)) {
+        const linkedWorkoutId = await this.workoutSourceRepository.findWorkoutId(
+          'apple_health',
+          sourceRecordId
+        );
+        if (linkedWorkoutId && (await this.workoutService.softDelete(linkedWorkoutId))) {
+          counts.workoutsDeleted += 1;
+        }
+      }
+
       for (const weightPayload of input.weights) {
         await this.weightService.create(
           normalizeAppleHealthWeight(weightPayload),
@@ -139,12 +169,44 @@ export class AppleHealthImportService {
           await this.splitService.recalculateKilometreSplits(workout.id);
         }
 
-        // Persist deterministic calculated metrics after sample/split changes. Trend reads
-        // can then aggregate compact snapshots instead of rescanning raw HealthKit series.
+        let analysis: unknown = null;
         if (this.workoutAnalysisService) {
-          await this.workoutAnalysisService.recalculateSnapshot(workout.id);
+          analysis = await this.workoutAnalysisService.recalculateSnapshot(workout.id);
+        }
+
+        const endedAtMs = new Date(workoutPayload.endedAt).getTime();
+        const ageMs = Date.now() - endedAtMs;
+        if (
+          this.coachingService &&
+          analysis !== null &&
+          ageMs >= -5 * 60 * 1000 &&
+          ageMs <= COACHING_RECENCY_MS
+        ) {
+          coachingCandidates.push({
+            workout,
+            sourceRecordId: workoutPayload.sourceRecordId,
+            endedAtMs,
+            analysis
+          });
         }
       }
+
+      const coaching = await Promise.all(
+        coachingCandidates
+          .sort((left, right) => right.endedAtMs - left.endedAtMs)
+          .slice(0, MAX_COACHING_PER_SYNC)
+          .map(async (candidate): Promise<CoachingSyncResult> => {
+            try {
+              return await this.coachingService!.evaluate(candidate);
+            } catch {
+              return {
+                workoutId: candidate.workout.id,
+                sourceRecordId: candidate.sourceRecordId,
+                status: 'failed'
+              };
+            }
+          })
+      );
 
       await this.syncRepository.complete(sync.id, counts);
 
@@ -152,7 +214,8 @@ export class AppleHealthImportService {
         syncId: input.syncId,
         status: 'completed',
         replayed: false,
-        ...counts
+        ...counts,
+        coaching
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown import error';
@@ -165,5 +228,33 @@ export class AppleHealthImportService {
 
       throw error;
     }
+  }
+
+  private async loadReplayCoaching(
+    input: AppleHealthImportInput
+  ): Promise<CoachingSyncResult[]> {
+    if (!this.coachingService || input.workouts.length === 0) return [];
+
+    const results = await Promise.all(
+      input.workouts.map(async (workoutPayload): Promise<CoachingSyncResult | null> => {
+        const workoutId = await this.workoutSourceRepository.findWorkoutId(
+          'apple_health',
+          workoutPayload.sourceRecordId
+        );
+        if (!workoutId) return null;
+
+        const persisted = await this.coachingService!.getLatest(workoutId);
+        if (!persisted?.summary) return null;
+
+        return {
+          workoutId,
+          sourceRecordId: workoutPayload.sourceRecordId,
+          status: 'completed',
+          summary: persisted.summary
+        };
+      })
+    );
+
+    return results.filter((result): result is CoachingSyncResult => result !== null);
   }
 }

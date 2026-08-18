@@ -54,6 +54,7 @@ function run(
     ingested_via: 'test',
     notes: null,
     raw_payload: null,
+    deleted_at: null,
     created_at: now,
     updated_at: now
   };

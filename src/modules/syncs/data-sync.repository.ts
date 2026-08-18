@@ -8,6 +8,7 @@ export type SyncCounts = {
   weightsProcessed: number;
   workoutsProcessed: number;
   workoutsMatched: number;
+  workoutsDeleted: number;
   metricSamplesProcessed: number;
 };
 
@@ -32,7 +33,6 @@ export class DataSyncRepository {
 
     return data;
   }
-
 
   async listRecent(provider: string, limit = 20): Promise<DataSyncRow[]> {
     const { data, error } = await this.supabase
@@ -95,6 +95,7 @@ export class DataSyncRepository {
         weights_processed: counts.weightsProcessed,
         workouts_processed: counts.workoutsProcessed,
         workouts_matched: counts.workoutsMatched,
+        workouts_deleted: counts.workoutsDeleted,
         metric_samples_processed: counts.metricSamplesProcessed,
         error_message: null,
         completed_at: now,
