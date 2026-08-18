@@ -1,5 +1,7 @@
+import type { Json } from '../../types/database.types.js';
 import type { WorkoutService } from '../workouts/workout.service.js';
 import type { WorkoutAnalysisService } from './workout-analysis.service.js';
+import type { WorkoutAnalysisRepository } from './workout-analysis.repository.js';
 
 type WorkoutAnalysis = Awaited<ReturnType<WorkoutAnalysisService['analyse']>>;
 type WorkoutRow = Awaited<ReturnType<WorkoutService['list']>>[number];
@@ -11,7 +13,7 @@ type WorkoutAnalysisPair = {
 };
 
 const DAY_MS = 86_400_000;
-const ANALYSIS_CONCURRENCY = 6;
+const BACKFILL_CONCURRENCY = 4;
 
 function round(value: number, digits = 2): number {
   const multiplier = 10 ** digits;
@@ -25,6 +27,10 @@ function average(values: number[]): number | null {
 
 function workoutTimestamp(workout: WorkoutRow): number {
   return new Date(workout.started_at ?? `${workout.started_on}T12:00:00Z`).getTime();
+}
+
+function snapshotAnalysis(value: Json): WorkoutAnalysis {
+  return value as unknown as WorkoutAnalysis;
 }
 
 export function isWorkoutWithinPastDays(
@@ -68,7 +74,8 @@ export function linearTrend(values: DatedValue[]) {
 export class RunningTrendService {
   constructor(
     private readonly workoutService: WorkoutService,
-    private readonly workoutAnalysisService: WorkoutAnalysisService
+    private readonly workoutAnalysisService: WorkoutAnalysisService,
+    private readonly analysisRepository: WorkoutAnalysisRepository
   ) {}
 
   async getRunningEfficiencyTrends() {
@@ -80,17 +87,35 @@ export class RunningTrendService {
       isWorkoutWithinPastDays(workout, nowMs, 90)
     );
 
-    const pairs: WorkoutAnalysisPair[] = [];
-    for (let index = 0; index < last90.length; index += ANALYSIS_CONCURRENCY) {
-      const batch = last90.slice(index, index + ANALYSIS_CONCURRENCY);
-      const analysed = await Promise.all(
+    const stored = await this.analysisRepository.listByWorkouts(
+      last90.map((workout) => workout.id)
+    );
+    const analysesByWorkout = new Map<string, WorkoutAnalysis>(
+      stored.map((snapshot) => [snapshot.workout_id, snapshotAnalysis(snapshot.analysis)])
+    );
+
+    // Existing historical workouts may predate snapshot persistence. Backfill only cache
+    // misses, once, with bounded concurrency; subsequent trend reads use compact snapshots.
+    const missing = last90.filter((workout) => !analysesByWorkout.has(workout.id));
+    for (let index = 0; index < missing.length; index += BACKFILL_CONCURRENCY) {
+      const batch = missing.slice(index, index + BACKFILL_CONCURRENCY);
+      const calculated = await Promise.all(
         batch.map(async (workout) => ({
-          workout,
-          analysis: await this.workoutAnalysisService.analyseWorkout(workout)
+          workoutId: workout.id,
+          analysis: await this.workoutAnalysisService.recalculateSnapshot(workout.id)
         }))
       );
-      pairs.push(...analysed);
+      for (const item of calculated) {
+        analysesByWorkout.set(item.workoutId, item.analysis);
+      }
     }
+
+    const pairs: WorkoutAnalysisPair[] = last90
+      .map((workout) => {
+        const analysis = analysesByWorkout.get(workout.id);
+        return analysis ? { workout, analysis } : null;
+      })
+      .filter((pair): pair is WorkoutAnalysisPair => pair !== null);
 
     const buildWindow = (days: number) => {
       const windowPairs = pairs.filter(({ workout }) =>
@@ -99,10 +124,6 @@ export class RunningTrendService {
       const windowWorkouts = windowPairs.map(({ workout }) => workout);
       const totalDistanceM = windowWorkouts.reduce(
         (sum, workout) => sum + (workout.distance_m ?? 0),
-        0
-      );
-      const totalDurationSeconds = windowWorkouts.reduce(
-        (sum, workout) => sum + (workout.duration_seconds ?? 0),
         0
       );
       const paceEligibleWorkouts = windowWorkouts.filter(
