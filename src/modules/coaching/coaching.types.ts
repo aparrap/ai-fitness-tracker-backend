@@ -20,7 +20,7 @@ export type WorkoutCoachingEvaluation = z.infer<
 export type CoachingSyncResult = {
   workoutId: string;
   sourceRecordId: string;
-  status: 'completed' | 'disabled' | 'failed';
+  status: 'completed' | 'unchanged' | 'disabled' | 'failed';
   summary?: string;
 };
 
