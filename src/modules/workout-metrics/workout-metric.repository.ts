@@ -4,6 +4,7 @@ import { RepositoryError } from '../../shared/errors.js';
 import type { AppleHealthWorkoutSamplePayload } from '../../integrations/apple-health/apple-health.schema.js';
 
 type MetricInsert = Database['public']['Tables']['workout_metric_samples']['Insert'];
+type MetricInsertWithAggregation = MetricInsert & { aggregation: string };
 type MetricRow = Database['public']['Tables']['workout_metric_samples']['Row'];
 
 const CHUNK_SIZE = 500;
@@ -118,7 +119,7 @@ export class WorkoutMetricRepository {
     for (let index = 0; index < samples.length; index += CHUNK_SIZE) {
       const chunk = samples.slice(index, index + CHUNK_SIZE);
 
-      const rows: MetricInsert[] = chunk.map((sample) => ({
+      const rows: MetricInsertWithAggregation[] = chunk.map((sample) => ({
         workout_id: workoutId,
         metric_name: sample.metric,
         sampled_at: sample.sampledAt,
@@ -134,6 +135,7 @@ export class WorkoutMetricRepository {
         association_kind: sample.associationKind,
         source_name: sample.sourceName ?? null,
         source_bundle_identifier: sample.sourceBundleIdentifier ?? null,
+        aggregation: sample.aggregation,
         raw_payload: sample as unknown as Json
       }));
 

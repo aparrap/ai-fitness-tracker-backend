@@ -5,12 +5,17 @@ import type { WorkoutSplitService } from '../workout-splits/workout-split.servic
 import { analyseHrPace } from './hr-pace.service.js';
 import type { AnalysisSample } from './fitness-analytics.types.js';
 import type { WorkoutAnalysisRepository } from './workout-analysis.repository.js';
+import { WORKOUT_ANALYSIS_VERSION } from './analysis-version.js';
 
 type MetricRow = Database['public']['Tables']['workout_metric_samples']['Row'];
 type SplitRow = Database['public']['Tables']['workout_splits']['Row'];
 type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
 
 function aggregationOf(row: MetricRow): string | undefined {
+  const direct = (row as MetricRow & { aggregation?: string | null }).aggregation;
+  if (typeof direct === 'string') return direct;
+
+  // Transitional fallback for rows written before aggregation became a first-class column.
   const raw = row.raw_payload;
   if (!raw || Array.isArray(raw) || typeof raw !== 'object') return undefined;
   const value = (raw as { aggregation?: Json }).aggregation;
@@ -87,7 +92,11 @@ export class WorkoutAnalysisService {
   async recalculateSnapshot(workoutId: string) {
     const analysis = await this.analyse(workoutId);
     if (this.analysisRepository) {
-      await this.analysisRepository.upsert(workoutId, analysis);
+      await this.analysisRepository.upsert(
+        workoutId,
+        analysis,
+        WORKOUT_ANALYSIS_VERSION
+      );
     }
     return analysis;
   }

@@ -9,6 +9,7 @@ import type {
 type NumericPoint = { timestampMs: number; value: number };
 
 const GRID_SECONDS = 5;
+const GRID_MS = GRID_SECONDS * 1000;
 const MAX_INTERPOLATION_GAP_MS = 30_000;
 const MIN_BAND_SECONDS = 120;
 const HR_BAND_WIDTH = 2;
@@ -47,6 +48,23 @@ function timestamp(value: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function observedDurationSeconds(points: AlignedRunningPoint[]): number {
+  let durationMs = 0;
+
+  for (let index = 1; index < points.length; index += 1) {
+    const previousMs = timestamp(points[index - 1]!.sampledAt);
+    const currentMs = timestamp(points[index]!.sampledAt);
+    if (previousMs === null || currentMs === null) continue;
+
+    const intervalMs = currentMs - previousMs;
+    if (intervalMs > 0 && intervalMs <= GRID_MS) {
+      durationMs += intervalMs;
+    }
+  }
+
+  return durationMs / 1000;
+}
+
 function toPoints(samples: AnalysisSample[], metricName: string): NumericPoint[] {
   return samples
     .filter((sample) => sample.metricName === metricName)
@@ -70,13 +88,8 @@ function distanceToSpeedPoints(samples: AnalysisSample[]): NumericPoint[] {
 
   if (distanceSamples.length === 0) return [];
 
-  const aggregationModes = new Set(
-    distanceSamples.map((sample) =>
-      sample.aggregation === 'cumulative' ? 'cumulative' : 'interval_delta'
-    )
-  );
-
-  if (aggregationModes.size > 1) return [];
+  const aggregationModes = new Set(distanceSamples.map((sample) => sample.aggregation));
+  if (aggregationModes.size !== 1) return [];
 
   const cumulativeMode = aggregationModes.has('cumulative');
   const points: NumericPoint[] = [];
@@ -97,16 +110,11 @@ function distanceToSpeedPoints(samples: AnalysisSample[]): NumericPoint[] {
     return points;
   }
 
-  for (let index = 0; index < distanceSamples.length; index += 1) {
-    const sample = distanceSamples[index]!;
-    const endedAtMs = timestamp(sample.sampleEndedAt ?? null);
-    const nextStartedAtMs = distanceSamples[index + 1]?.timestampMs;
-    const intervalEndMs =
-      endedAtMs !== null && endedAtMs > sample.timestampMs
-        ? endedAtMs
-        : nextStartedAtMs;
+  if (!aggregationModes.has('interval_delta')) return [];
 
-    if (intervalEndMs === undefined || intervalEndMs <= sample.timestampMs) continue;
+  for (const sample of distanceSamples) {
+    const intervalEndMs = timestamp(sample.sampleEndedAt ?? null);
+    if (intervalEndMs === null || intervalEndMs <= sample.timestampMs) continue;
     const seconds = (intervalEndMs - sample.timestampMs) / 1000;
     if (seconds <= 0 || seconds > 120) continue;
 
@@ -159,8 +167,6 @@ function interpolate(points: NumericPoint[], targetMs: number): number | null {
       : null;
   }
 
-  // Do not manufacture telemetry inside long interior gaps. Missing/paused time
-  // must not contribute to analysed duration, drift or aerobic efficiency.
   if (right.timestampMs - left.timestampMs > MAX_INTERPOLATION_GAP_MS) {
     return null;
   }
@@ -186,7 +192,7 @@ function alignWithSpeedPoints(
   if (endMs <= startMs) return [];
 
   const aligned: AlignedRunningPoint[] = [];
-  for (let currentMs = startMs; currentMs <= endMs; currentMs += GRID_SECONDS * 1000) {
+  for (let currentMs = startMs; currentMs <= endMs; currentMs += GRID_MS) {
     const heartRateBpm = interpolate(heartRatePoints, currentMs);
     const speedMps = interpolate(speedPoints, currentMs);
     if (heartRateBpm === null || speedMps === null || speedMps < 0.5) continue;
@@ -238,8 +244,8 @@ export function alignHeartRateAndPace(samples: AnalysisSample[]): {
     return { points: distanceAligned, speedSource: 'distance' };
   }
 
-  const directCoverageSeconds = directAligned.length * GRID_SECONDS;
-  const distanceCoverageSeconds = distanceAligned.length * GRID_SECONDS;
+  const directCoverageSeconds = observedDurationSeconds(directAligned);
+  const distanceCoverageSeconds = observedDurationSeconds(distanceAligned);
   const directCoverageIsComparable =
     directCoverageSeconds >= distanceCoverageSeconds * DIRECT_SPEED_MIN_COVERAGE_RATIO;
 
@@ -252,7 +258,7 @@ function buildHrPaceBand(points: AlignedRunningPoint[], targetBpm: number): HrPa
   const matching = points.filter(
     (point) => Math.abs(point.heartRateBpm - targetBpm) <= HR_BAND_WIDTH
   );
-  const durationSeconds = matching.length * GRID_SECONDS;
+  const durationSeconds = observedDurationSeconds(matching);
   const sufficient = durationSeconds >= MIN_BAND_SECONDS;
   const averageHeartRate = average(matching.map((point) => point.heartRateBpm));
   const averageSpeed = average(matching.map((point) => point.speedMps));
@@ -281,15 +287,20 @@ function buildHeartRateBySpeed(points: AlignedRunningPoint[]): HeartRateBySpeedB
   }
 
   return [...buckets.entries()]
-    .filter(([, bucketPoints]) => bucketPoints.length * GRID_SECONDS >= MIN_BAND_SECONDS)
     .map(([speedMps, bucketPoints]) => ({
+      speedMps,
+      bucketPoints,
+      durationSeconds: observedDurationSeconds(bucketPoints)
+    }))
+    .filter((bucket) => bucket.durationSeconds >= MIN_BAND_SECONDS)
+    .map(({ speedMps, bucketPoints, durationSeconds }) => ({
       speedMps: round(speedMps, 2),
       paceSecondsPerKm: round(1000 / speedMps),
       avgHeartRateBpm: round(
         average(bucketPoints.map((point) => point.heartRateBpm))!
       ),
       sampleCount: bucketPoints.length,
-      durationSeconds: bucketPoints.length * GRID_SECONDS
+      durationSeconds
     }))
     .sort((a, b) => a.speedMps - b.speedMps);
 }
@@ -315,7 +326,7 @@ export function analyseHrPace(samples: AnalysisSample[]): RunningPhysiologyAnaly
 
   return {
     alignedSampleCount: points.length,
-    analysedDurationSeconds: points.length * GRID_SECONDS,
+    analysedDurationSeconds: observedDurationSeconds(points),
     speedSource,
     hrPaceBands: [140, 145, 150].map((target) => buildHrPaceBand(points, target)),
     heartRateBySpeed: buildHeartRateBySpeed(points),

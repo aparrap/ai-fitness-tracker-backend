@@ -209,6 +209,31 @@ export const appleHealthWorkoutSchema = z
       });
     }
 
+    workout.samples.forEach((sample, index) => {
+      const sampleStartMs = new Date(sample.sampledAt).getTime();
+      const sampleEndMs = sample.sampleEndedAt
+        ? new Date(sample.sampleEndedAt).getTime()
+        : sampleStartMs;
+      if (sampleEndMs < startedAtMs || sampleStartMs > endedAtMs) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Workout samples must overlap the workout interval',
+          path: ['samples', index, 'sampledAt']
+        });
+      }
+    });
+
+    workout.heartRateSamples.forEach((sample, index) => {
+      const sampledAtMs = new Date(sample.sampledAt).getTime();
+      if (sampledAtMs < startedAtMs || sampledAtMs > endedAtMs) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Legacy heart-rate samples must fall within the workout interval',
+          path: ['heartRateSamples', index, 'sampledAt']
+        });
+      }
+    });
+
     const distanceAggregationModes = new Set(
       workout.samples
         .filter((sample) => sample.metric === 'distance')

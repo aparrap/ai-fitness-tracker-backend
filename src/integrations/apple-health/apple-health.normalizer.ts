@@ -13,6 +13,20 @@ function mean(values: number[]): number | undefined {
   ) / 100;
 }
 
+function aggregateTotal(
+  samples: AppleHealthWorkoutSamplePayload[],
+  metric: 'distance' | 'active_energy'
+): number | undefined {
+  const matching = samples.filter((sample) => sample.metric === metric);
+  if (matching.length === 0) return undefined;
+
+  if (metric === 'distance' && matching[0]!.aggregation === 'cumulative') {
+    return Math.max(...matching.map((sample) => sample.value));
+  }
+
+  return matching.reduce((total, sample) => total + sample.value, 0);
+}
+
 export function normalizeAppleHealthWorkoutSamples(
   payload: AppleHealthWorkoutPayload
 ): AppleHealthWorkoutSamplePayload[] {
@@ -65,13 +79,16 @@ export function normalizeAppleHealthWorkout(
     0,
     Math.round((ended.getTime() - started.getTime()) / 1000)
   );
+  const normalizedSamples = normalizeAppleHealthWorkoutSamples(payload);
 
-  const heartRates = normalizeAppleHealthWorkoutSamples(payload)
+  const heartRates = normalizedSamples
     .filter((sample) => sample.metric === 'heart_rate')
     .map((sample) => sample.value);
   const derivedAverageHeartRate = mean(heartRates);
   const derivedMaxHeartRate =
     heartRates.length > 0 ? Math.max(...heartRates) : undefined;
+  const derivedDistanceM = aggregateTotal(normalizedSamples, 'distance');
+  const derivedActiveEnergyKcal = aggregateTotal(normalizedSamples, 'active_energy');
 
   return {
     activityType: payload.activityType,
@@ -84,10 +101,16 @@ export function normalizeAppleHealthWorkout(
       ? `Imported from Apple Health (${payload.sourceName})`
       : 'Imported from Apple Health',
     ...(payload.title !== undefined ? { title: payload.title } : {}),
-    ...(payload.distanceM !== undefined ? { distanceM: payload.distanceM } : {}),
+    ...(payload.distanceM !== undefined
+      ? { distanceM: payload.distanceM }
+      : derivedDistanceM !== undefined
+        ? { distanceM: derivedDistanceM }
+        : {}),
     ...(payload.activeEnergyKcal !== undefined
       ? { activeEnergyKcal: payload.activeEnergyKcal }
-      : {}),
+      : derivedActiveEnergyKcal !== undefined
+        ? { activeEnergyKcal: derivedActiveEnergyKcal }
+        : {}),
     ...(payload.elevationGainM !== undefined
       ? { elevationGainM: payload.elevationGainM }
       : {}),

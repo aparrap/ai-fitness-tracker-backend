@@ -1,17 +1,22 @@
 import type { FitnessSupabaseClient } from '../../lib/supabase.js';
 import type { Database, Json } from '../../types/database.types.js';
 import { RepositoryError } from '../../shared/errors.js';
+import { WORKOUT_ANALYSIS_VERSION } from './analysis-version.js';
 
 type SnapshotRow = Database['public']['Tables']['workout_analysis_snapshots']['Row'];
 
 export class WorkoutAnalysisRepository {
   constructor(private readonly supabase: FitnessSupabaseClient) {}
 
-  async getByWorkout(workoutId: string): Promise<SnapshotRow | null> {
+  async getByWorkout(
+    workoutId: string,
+    algorithmVersion = WORKOUT_ANALYSIS_VERSION
+  ): Promise<SnapshotRow | null> {
     const { data, error } = await this.supabase
       .from('workout_analysis_snapshots')
       .select('*')
       .eq('workout_id', workoutId)
+      .eq('algorithm_version', algorithmVersion)
       .maybeSingle();
 
     if (error) {
@@ -21,7 +26,10 @@ export class WorkoutAnalysisRepository {
     return data;
   }
 
-  async listByWorkouts(workoutIds: string[]): Promise<SnapshotRow[]> {
+  async listByWorkouts(
+    workoutIds: string[],
+    algorithmVersion = WORKOUT_ANALYSIS_VERSION
+  ): Promise<SnapshotRow[]> {
     if (workoutIds.length === 0) return [];
 
     const rows: SnapshotRow[] = [];
@@ -32,7 +40,8 @@ export class WorkoutAnalysisRepository {
       const { data, error } = await this.supabase
         .from('workout_analysis_snapshots')
         .select('*')
-        .in('workout_id', batch);
+        .in('workout_id', batch)
+        .eq('algorithm_version', algorithmVersion);
 
       if (error) {
         throw new RepositoryError('Failed to load workout analysis snapshots', error.message);
@@ -47,7 +56,7 @@ export class WorkoutAnalysisRepository {
   async upsert(
     workoutId: string,
     analysis: unknown,
-    algorithmVersion = 'analysis-v1'
+    algorithmVersion = WORKOUT_ANALYSIS_VERSION
   ): Promise<SnapshotRow> {
     const now = new Date().toISOString();
     const { data, error } = await this.supabase
