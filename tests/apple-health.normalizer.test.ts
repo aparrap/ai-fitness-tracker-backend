@@ -160,4 +160,20 @@ describe('Apple Health normalizer', () => {
       expect(result.error.issues.some((issue) => issue.path[0] === 'samples')).toBe(true);
     }
   });
+
+  it('rejects timestamp spans longer than seven days even when durationSeconds is omitted', () => {
+    const result = appleHealthWorkoutSchema.safeParse({
+      sourceRecordId: 'workout-too-long',
+      activityType: 'running',
+      startedAt: '2026-08-01T07:00:00+01:00',
+      startedOn: '2026-08-01',
+      endedAt: '2026-08-09T07:00:01+01:00',
+      samples: []
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === 'endedAt')).toBe(true);
+    }
+  });
 });
