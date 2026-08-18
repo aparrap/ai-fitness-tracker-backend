@@ -60,7 +60,7 @@ export class AppleHealthImportService {
         workoutsMatched: existing.workouts_matched,
         workoutsDeleted: existing.workouts_deleted,
         metricSamplesProcessed: existing.metric_samples_processed,
-        coaching: []
+        coaching: await this.loadReplayCoaching(input)
       };
     }
 
@@ -228,5 +228,33 @@ export class AppleHealthImportService {
 
       throw error;
     }
+  }
+
+  private async loadReplayCoaching(
+    input: AppleHealthImportInput
+  ): Promise<CoachingSyncResult[]> {
+    if (!this.coachingService || input.workouts.length === 0) return [];
+
+    const results = await Promise.all(
+      input.workouts.map(async (workoutPayload): Promise<CoachingSyncResult | null> => {
+        const workoutId = await this.workoutSourceRepository.findWorkoutId(
+          'apple_health',
+          workoutPayload.sourceRecordId
+        );
+        if (!workoutId) return null;
+
+        const persisted = await this.coachingService!.getLatest(workoutId);
+        if (!persisted?.summary) return null;
+
+        return {
+          workoutId,
+          sourceRecordId: workoutPayload.sourceRecordId,
+          status: 'completed',
+          summary: persisted.summary
+        };
+      })
+    );
+
+    return results.filter((result): result is CoachingSyncResult => result !== null);
   }
 }
