@@ -37,12 +37,13 @@ create index if not exists idx_workouts_profile_active_date
 -- COACHING EVALUATIONS
 --
 -- One deterministic coaching evaluation is stored per workout/prompt version.
--- Reprocessing the same HealthKit workout updates that evaluation rather than
--- appending duplicates.
+-- The input fingerprint prevents unchanged HealthKit replays/manual reimports
+-- from spending another model call or producing duplicate notifications.
 -- ============================================================
 
 alter table public.ai_analyses
-  add column if not exists updated_at timestamptz not null default now();
+  add column if not exists updated_at timestamptz not null default now(),
+  add column if not exists input_hash text;
 
 do $$
 begin
