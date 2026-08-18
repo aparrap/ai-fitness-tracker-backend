@@ -1,5 +1,5 @@
 import type { FitnessSupabaseClient } from '../../lib/supabase.js';
-import type { Database } from '../../types/database.types.js';
+import type { Database, Json } from '../../types/database.types.js';
 import { RepositoryError } from '../../shared/errors.js';
 
 type SplitRow = Database['public']['Tables']['workout_splits']['Row'];
@@ -22,53 +22,52 @@ export class WorkoutSplitRepository {
     return data ?? [];
   }
 
+  async listByWorkouts(workoutIds: string[]): Promise<SplitRow[]> {
+    if (workoutIds.length === 0) return [];
+
+    const rows: SplitRow[] = [];
+    const batchSize = 100;
+
+    for (let index = 0; index < workoutIds.length; index += batchSize) {
+      const batch = workoutIds.slice(index, index + batchSize);
+      const { data, error } = await this.supabase
+        .from('workout_splits')
+        .select('*')
+        .in('workout_id', batch)
+        .eq('split_kind', 'kilometre')
+        .order('workout_id', { ascending: true })
+        .order('split_number', { ascending: true });
+
+      if (error) {
+        throw new RepositoryError('Failed to load workout splits', error.message);
+      }
+
+      rows.push(...(data ?? []));
+    }
+
+    return rows;
+  }
+
   async replaceKilometreSplits(
     workoutId: string,
     splits: Omit<SplitInsert, 'workout_id'>[]
   ): Promise<SplitRow[]> {
-    if (splits.length === 0) {
-      const { error } = await this.supabase
-        .from('workout_splits')
-        .delete()
-        .eq('workout_id', workoutId)
-        .eq('split_kind', 'kilometre');
+    const payload = splits.map(({ created_at: _createdAt, updated_at: _updatedAt, ...split }) =>
+      split
+    );
 
-      if (error) {
-        throw new RepositoryError('Failed to clear workout splits', error.message);
+    const { data, error } = await this.supabase.rpc(
+      'replace_workout_kilometre_splits',
+      {
+        p_workout_id: workoutId,
+        p_splits: payload as unknown as Json
       }
+    );
 
-      return [];
+    if (error) {
+      throw new RepositoryError('Failed to replace workout splits', error.message);
     }
 
-    const recalculatedAt = new Date().toISOString();
-    const rows: SplitInsert[] = splits.map((split) => ({
-      ...split,
-      workout_id: workoutId,
-      updated_at: recalculatedAt
-    }));
-
-    const { error: upsertError } = await this.supabase
-      .from('workout_splits')
-      .upsert(rows, {
-        onConflict: 'workout_id,split_kind,split_number'
-      });
-
-    if (upsertError) {
-      throw new RepositoryError('Failed to save workout splits', upsertError.message);
-    }
-
-    const maxSplit = Math.max(...splits.map((split) => split.split_number));
-    const { error: deleteError } = await this.supabase
-      .from('workout_splits')
-      .delete()
-      .eq('workout_id', workoutId)
-      .eq('split_kind', 'kilometre')
-      .gt('split_number', maxSplit);
-
-    if (deleteError) {
-      throw new RepositoryError('Failed to remove stale workout splits', deleteError.message);
-    }
-
-    return this.listByWorkout(workoutId);
+    return data ?? [];
   }
 }
