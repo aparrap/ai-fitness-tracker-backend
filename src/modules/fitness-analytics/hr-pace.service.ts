@@ -76,9 +76,6 @@ function distanceToSpeedPoints(samples: AnalysisSample[]): NumericPoint[] {
     )
   );
 
-  // New imports reject mixed distance aggregation modes at the schema boundary.
-  // Return no derived speed for any legacy mixed data rather than silently combining
-  // incompatible cumulative and interval-delta semantics.
   if (aggregationModes.size > 1) return [];
 
   const cumulativeMode = aggregationModes.has('cumulative');
@@ -152,11 +149,7 @@ function interpolate(points: NumericPoint[], targetMs: number): number | null {
       : null;
   }
 
-  if (
-    targetMs < left.timestampMs ||
-    targetMs > right.timestampMs ||
-    right.timestampMs - left.timestampMs > MAX_INTERPOLATION_GAP_MS
-  ) {
+  if (targetMs < left.timestampMs || targetMs > right.timestampMs) {
     const nearest =
       Math.abs(targetMs - left.timestampMs) <= Math.abs(targetMs - right.timestampMs)
         ? left
@@ -164,6 +157,12 @@ function interpolate(points: NumericPoint[], targetMs: number): number | null {
     return Math.abs(nearest.timestampMs - targetMs) <= MAX_INTERPOLATION_GAP_MS
       ? nearest.value
       : null;
+  }
+
+  // Do not manufacture telemetry inside long interior gaps. Missing/paused time
+  // must not contribute to analysed duration, drift or aerobic efficiency.
+  if (right.timestampMs - left.timestampMs > MAX_INTERPOLATION_GAP_MS) {
+    return null;
   }
 
   const fraction = (targetMs - left.timestampMs) / (right.timestampMs - left.timestampMs);
