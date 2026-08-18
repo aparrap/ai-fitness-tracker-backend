@@ -171,6 +171,7 @@ export type Database = {
           association_kind: string | null;
           source_name: string | null;
           source_bundle_identifier: string | null;
+          aggregation: string | null;
           raw_payload: Json | null;
           created_at: string;
         };
@@ -188,6 +189,7 @@ export type Database = {
           association_kind?: string | null;
           source_name?: string | null;
           source_bundle_identifier?: string | null;
+          aggregation?: string | null;
           raw_payload?: Json | null;
           created_at?: string;
         };
@@ -203,6 +205,7 @@ export type Database = {
           association_kind?: string | null;
           source_name?: string | null;
           source_bundle_identifier?: string | null;
+          aggregation?: string | null;
           raw_payload?: Json | null;
         };
         Relationships: [];

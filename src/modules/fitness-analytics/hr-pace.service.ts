@@ -151,6 +151,9 @@ function interpolate(points: NumericPoint[], targetMs: number): number | null {
   const right = points[rightIndex]!;
   const left = points[Math.max(0, rightIndex - 1)]!;
 
+  // An observed point is valid even when the preceding interval is a long telemetry gap.
+  if (right.timestampMs === targetMs) return right.value;
+
   if (left.timestampMs === right.timestampMs) {
     return Math.abs(left.timestampMs - targetMs) <= MAX_INTERPOLATION_GAP_MS
       ? left.value
