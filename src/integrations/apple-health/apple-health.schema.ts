@@ -150,10 +150,20 @@ export const appleHealthWorkoutSchema = z
     heartRateSamples: z.array(appleHealthHeartRateSampleSchema).max(50000).default([])
   })
   .superRefine((workout, ctx) => {
-    if (new Date(workout.endedAt).getTime() < new Date(workout.startedAt).getTime()) {
+    const startedAtMs = new Date(workout.startedAt).getTime();
+    const endedAtMs = new Date(workout.endedAt).getTime();
+    const timestampDurationSeconds = (endedAtMs - startedAtMs) / 1000;
+
+    if (endedAtMs < startedAtMs) {
       ctx.addIssue({
         code: 'custom',
         message: 'endedAt must be greater than or equal to startedAt',
+        path: ['endedAt']
+      });
+    } else if (timestampDurationSeconds > MAX_WORKOUT_DURATION_SECONDS) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Workout timestamps may span at most ${MAX_WORKOUT_DURATION_SECONDS} seconds`,
         path: ['endedAt']
       });
     }
