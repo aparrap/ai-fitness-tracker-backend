@@ -11,6 +11,7 @@ type WorkoutAnalysisPair = {
 };
 
 const DAY_MS = 86_400_000;
+const ANALYSIS_CONCURRENCY = 6;
 
 function round(value: number, digits = 2): number {
   const multiplier = 10 ** digits;
@@ -80,11 +81,15 @@ export class RunningTrendService {
     );
 
     const pairs: WorkoutAnalysisPair[] = [];
-    for (const workout of last90) {
-      pairs.push({
-        workout,
-        analysis: await this.workoutAnalysisService.analyse(workout.id)
-      });
+    for (let index = 0; index < last90.length; index += ANALYSIS_CONCURRENCY) {
+      const batch = last90.slice(index, index + ANALYSIS_CONCURRENCY);
+      const analysed = await Promise.all(
+        batch.map(async (workout) => ({
+          workout,
+          analysis: await this.workoutAnalysisService.analyseWorkout(workout)
+        }))
+      );
+      pairs.push(...analysed);
     }
 
     const buildWindow = (days: number) => {
@@ -100,9 +105,21 @@ export class RunningTrendService {
         (sum, workout) => sum + (workout.duration_seconds ?? 0),
         0
       );
+      const paceEligibleWorkouts = windowWorkouts.filter(
+        (workout) =>
+          (workout.distance_m ?? 0) > 0 && (workout.duration_seconds ?? 0) > 0
+      );
+      const paceDistanceM = paceEligibleWorkouts.reduce(
+        (sum, workout) => sum + (workout.distance_m ?? 0),
+        0
+      );
+      const paceDurationSeconds = paceEligibleWorkouts.reduce(
+        (sum, workout) => sum + (workout.duration_seconds ?? 0),
+        0
+      );
       const weightedPace =
-        totalDistanceM > 0 && totalDurationSeconds > 0
-          ? (totalDurationSeconds / totalDistanceM) * 1000
+        paceDistanceM > 0 && paceDurationSeconds > 0
+          ? (paceDurationSeconds / paceDistanceM) * 1000
           : null;
       const efficiencies = windowPairs
         .map(({ analysis }) => analysis.aerobicEfficiencyMetersPerHeartbeat)
@@ -165,9 +182,9 @@ export class RunningTrendService {
             (b.analysis.fastestKilometre?.paceSecondsPerKm ??
               Number.POSITIVE_INFINITY)
         )[0];
-      const distancePb = [...windowWorkouts].sort(
-        (a, b) => (b.distance_m ?? 0) - (a.distance_m ?? 0)
-      )[0];
+      const distancePb = windowWorkouts
+        .filter((workout) => (workout.distance_m ?? 0) > 0)
+        .sort((a, b) => (b.distance_m ?? 0) - (a.distance_m ?? 0))[0];
       const averagePacePb = windowWorkouts
         .filter(
           (workout) =>

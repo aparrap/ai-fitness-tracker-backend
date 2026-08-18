@@ -6,6 +6,7 @@ import { analyseHrPace } from './hr-pace.service.js';
 import type { AnalysisSample } from './fitness-analytics.types.js';
 
 type MetricRow = Database['public']['Tables']['workout_metric_samples']['Row'];
+type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
 
 function aggregationOf(row: MetricRow): string | undefined {
   const raw = row.raw_payload;
@@ -34,13 +35,20 @@ export class WorkoutAnalysisService {
 
   async analyse(workoutId: string) {
     const workout = await this.workoutService.getById(workoutId);
+    return this.analyseWorkout(workout);
+  }
+
+  async analyseWorkout(workout: WorkoutRow) {
     const metrics = await this.metricRepository.listByWorkoutMany(
-      workoutId,
+      workout.id,
       ['heart_rate', 'running_speed', 'distance'],
       100000
     );
     const physiology = analyseHrPace(metrics.map(toAnalysisSample));
-    const splits = await this.splitService.recalculateKilometreSplits(workoutId);
+
+    // Splits are recalculated during import when new distance/speed data arrives.
+    // Read-only analytics must not rewrite persisted data on every GET/trend request.
+    const splits = await this.splitService.list(workout.id);
     const kilometreSplits = splits.filter((split) => split.split_kind === 'kilometre');
     const fastestKilometre = kilometreSplits
       .filter((split) => split.avg_pace_seconds_per_km !== null)
