@@ -101,7 +101,8 @@ describe('Apple Health normalizer', () => {
       sampledAt: '2026-08-14T07:01:00+01:00',
       value: 8,
       unit: 'km/h',
-      associationKind: 'workout_associated'
+      associationKind: 'workout_associated',
+      aggregation: 'instantaneous'
     });
 
     expect(result.success).toBe(false);
@@ -115,6 +116,7 @@ describe('Apple Health normalizer', () => {
       sourceRecordId: 'distance-1',
       metric: 'distance',
       sampledAt: '2026-08-14T07:01:00+01:00',
+      sampleEndedAt: '2026-08-14T07:01:10+01:00',
       value: 1e12,
       unit: 'm',
       associationKind: 'workout_associated',
@@ -124,6 +126,40 @@ describe('Apple Health normalizer', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues.some((issue) => issue.path[0] === 'value')).toBe(true);
+    }
+  });
+
+  it('rejects aggregation modes that are invalid for a metric', () => {
+    const result = appleHealthWorkoutSampleSchema.safeParse({
+      sourceRecordId: 'distance-instantaneous',
+      metric: 'distance',
+      sampledAt: '2026-08-14T07:01:00+01:00',
+      value: 25,
+      unit: 'm',
+      associationKind: 'workout_associated',
+      aggregation: 'instantaneous'
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === 'aggregation')).toBe(true);
+    }
+  });
+
+  it('requires interval timing for interval-delta samples', () => {
+    const result = appleHealthWorkoutSampleSchema.safeParse({
+      sourceRecordId: 'steps-without-end',
+      metric: 'step_count',
+      sampledAt: '2026-08-14T07:01:00+01:00',
+      value: 20,
+      unit: 'count',
+      associationKind: 'workout_associated',
+      aggregation: 'interval_delta'
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === 'sampleEndedAt')).toBe(true);
     }
   });
 

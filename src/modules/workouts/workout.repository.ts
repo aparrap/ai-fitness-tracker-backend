@@ -6,6 +6,8 @@ type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
 type WorkoutInsert = Database['public']['Tables']['workouts']['Insert'];
 type WorkoutUpdate = Database['public']['Tables']['workouts']['Update'];
 
+const WORKOUT_PAGE_SIZE = 500;
+
 export class WorkoutRepository {
   constructor(
     private readonly supabase: FitnessSupabaseClient,
@@ -33,6 +35,42 @@ export class WorkoutRepository {
     return data ?? [];
   }
 
+  async listByDateRange(params: {
+    startedOnOrAfter: string;
+    startedOnOrBefore: string;
+    activityType?: string;
+  }): Promise<WorkoutRow[]> {
+    const rows: WorkoutRow[] = [];
+
+    for (let offset = 0; ; offset += WORKOUT_PAGE_SIZE) {
+      let query = this.supabase
+        .from('workouts')
+        .select('*')
+        .eq('profile_id', this.profileId)
+        .gte('started_on', params.startedOnOrAfter)
+        .lte('started_on', params.startedOnOrBefore)
+        .order('started_on', { ascending: true })
+        .order('started_at', { ascending: true, nullsFirst: true })
+        .range(offset, offset + WORKOUT_PAGE_SIZE - 1);
+
+      if (params.activityType) {
+        query = query.eq('activity_type', params.activityType);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        throw new RepositoryError('Failed to load workouts by date range', error.message);
+      }
+
+      const page = data ?? [];
+      rows.push(...page);
+      if (page.length < WORKOUT_PAGE_SIZE) break;
+    }
+
+    return rows;
+  }
+
   async getById(id: string): Promise<WorkoutRow> {
     const { data, error } = await this.supabase
       .from('workouts')
@@ -51,7 +89,6 @@ export class WorkoutRepository {
 
     return data;
   }
-
 
   async findLikelyDuplicate(params: {
     activityType: string;

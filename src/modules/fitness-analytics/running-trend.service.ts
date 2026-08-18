@@ -13,7 +13,6 @@ type WorkoutAnalysisPair = {
 };
 
 const DAY_MS = 86_400_000;
-const BACKFILL_CONCURRENCY = 4;
 
 function round(value: number, digits = 2): number {
   const multiplier = 10 ** digits;
@@ -31,6 +30,10 @@ function workoutTimestamp(workout: WorkoutRow): number {
 
 function snapshotAnalysis(value: Json): WorkoutAnalysis {
   return value as unknown as WorkoutAnalysis;
+}
+
+function isoDateOnly(timestampMs: number): string {
+  return new Date(timestampMs).toISOString().slice(0, 10);
 }
 
 export function isWorkoutWithinPastDays(
@@ -79,38 +82,26 @@ export class RunningTrendService {
   ) {}
 
   async getRunningEfficiencyTrends() {
-    const workouts = (await this.workoutService.list(500, 'running')).sort(
-      (a, b) => workoutTimestamp(a) - workoutTimestamp(b)
-    );
     const nowMs = Date.now();
-    const last90 = workouts.filter((workout) =>
-      isWorkoutWithinPastDays(workout, nowMs, 90)
-    );
+    const queryStartMs = nowMs - 90 * DAY_MS - DAY_MS;
+    const workouts = (
+      await this.workoutService.listByDateRange({
+        startedOnOrAfter: isoDateOnly(queryStartMs),
+        startedOnOrBefore: isoDateOnly(nowMs),
+        activityType: 'running'
+      })
+    ).filter((workout) => isWorkoutWithinPastDays(workout, nowMs, 90));
 
     const stored = await this.analysisRepository.listByWorkouts(
-      last90.map((workout) => workout.id)
+      workouts.map((workout) => workout.id)
     );
     const analysesByWorkout = new Map<string, WorkoutAnalysis>(
       stored.map((snapshot) => [snapshot.workout_id, snapshotAnalysis(snapshot.analysis)])
     );
 
-    // Existing historical workouts may predate snapshot persistence. Backfill only cache
-    // misses, once, with bounded concurrency; subsequent trend reads use compact snapshots.
-    const missing = last90.filter((workout) => !analysesByWorkout.has(workout.id));
-    for (let index = 0; index < missing.length; index += BACKFILL_CONCURRENCY) {
-      const batch = missing.slice(index, index + BACKFILL_CONCURRENCY);
-      const calculated = await Promise.all(
-        batch.map(async (workout) => ({
-          workoutId: workout.id,
-          analysis: await this.workoutAnalysisService.recalculateSnapshot(workout.id)
-        }))
-      );
-      for (const item of calculated) {
-        analysesByWorkout.set(item.workoutId, item.analysis);
-      }
-    }
-
-    const pairs: WorkoutAnalysisPair[] = last90
+    // Trend reads are intentionally read-only. New imports persist snapshots eagerly; older
+    // history can be backfilled separately without turning a GET request into a maintenance job.
+    const pairs: WorkoutAnalysisPair[] = workouts
       .map((workout) => {
         const analysis = analysesByWorkout.get(workout.id);
         return analysis ? { workout, analysis } : null;
@@ -118,10 +109,12 @@ export class RunningTrendService {
       .filter((pair): pair is WorkoutAnalysisPair => pair !== null);
 
     const buildWindow = (days: number) => {
+      const windowWorkouts = workouts.filter((workout) =>
+        isWorkoutWithinPastDays(workout, nowMs, days)
+      );
       const windowPairs = pairs.filter(({ workout }) =>
         isWorkoutWithinPastDays(workout, nowMs, days)
       );
-      const windowWorkouts = windowPairs.map(({ workout }) => workout);
       const totalDistanceM = windowWorkouts.reduce(
         (sum, workout) => sum + (workout.distance_m ?? 0),
         0
@@ -220,6 +213,11 @@ export class RunningTrendService {
       return {
         days,
         workoutCount: windowWorkouts.length,
+        analysisCoverage: {
+          available: windowPairs.length,
+          missing: windowWorkouts.length - windowPairs.length,
+          complete: windowPairs.length === windowWorkouts.length
+        },
         totalDistanceM: round(totalDistanceM),
         averagePaceSecondsPerKm: weightedPace !== null ? round(weightedPace) : null,
         aerobicEfficiencyMetersPerHeartbeat: (() => {

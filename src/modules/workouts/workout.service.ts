@@ -27,10 +27,17 @@ export class WorkoutService {
     return this.repository.list(limit, activityType);
   }
 
+  listByDateRange(params: {
+    startedOnOrAfter: string;
+    startedOnOrBefore: string;
+    activityType?: string;
+  }): Promise<WorkoutRow[]> {
+    return this.repository.listByDateRange(params);
+  }
+
   getById(id: string): Promise<WorkoutRow> {
     return this.repository.getById(id);
   }
-
 
   findLikelyDuplicate(input: CreateWorkoutInput): Promise<WorkoutRow | null> {
     return this.repository.findLikelyDuplicate({

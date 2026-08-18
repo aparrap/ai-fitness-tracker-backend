@@ -24,7 +24,11 @@ export const appleHealthWorkoutSampleMetricSchema = z.enum([
   'running_ground_contact_time'
 ]);
 
-const canonicalUnitByMetric = {
+const aggregationSchema = z.enum(['instantaneous', 'interval_delta', 'cumulative']);
+type Aggregation = z.infer<typeof aggregationSchema>;
+type Metric = z.infer<typeof appleHealthWorkoutSampleMetricSchema>;
+
+const canonicalUnitByMetric: Record<Metric, string> = {
   heart_rate: 'bpm',
   running_speed: 'm/s',
   distance: 'm',
@@ -34,9 +38,9 @@ const canonicalUnitByMetric = {
   running_stride_length: 'm',
   running_vertical_oscillation: 'm',
   running_ground_contact_time: 'ms'
-} as const;
+};
 
-const maxValueByMetric = {
+const maxValueByMetric: Record<Metric, number> = {
   heart_rate: 260,
   running_speed: 20,
   distance: MAX_WORKOUT_DISTANCE_M,
@@ -46,7 +50,19 @@ const maxValueByMetric = {
   running_stride_length: 5,
   running_vertical_oscillation: 1,
   running_ground_contact_time: 5_000
-} as const;
+};
+
+const allowedAggregationsByMetric: Record<Metric, readonly Aggregation[]> = {
+  heart_rate: ['instantaneous'],
+  running_speed: ['instantaneous'],
+  distance: ['interval_delta', 'cumulative'],
+  active_energy: ['interval_delta'],
+  step_count: ['interval_delta'],
+  running_power: ['instantaneous'],
+  running_stride_length: ['instantaneous'],
+  running_vertical_oscillation: ['instantaneous'],
+  running_ground_contact_time: ['instantaneous']
+};
 
 export const appleHealthWorkoutSampleSchema = z
   .object({
@@ -59,17 +75,17 @@ export const appleHealthWorkoutSampleSchema = z
     associationKind: z
       .enum(['workout_associated', 'time_window'])
       .default('workout_associated'),
-    aggregation: z
-      .enum(['instantaneous', 'interval_delta', 'cumulative'])
-      .optional(),
+    aggregation: aggregationSchema,
     sourceName: z.string().max(200).optional(),
     sourceBundleIdentifier: z.string().max(300).optional()
   })
   .superRefine((sample, ctx) => {
-    if (
-      sample.sampleEndedAt &&
-      new Date(sample.sampleEndedAt).getTime() < new Date(sample.sampledAt).getTime()
-    ) {
+    const sampledAtMs = new Date(sample.sampledAt).getTime();
+    const sampleEndedAtMs = sample.sampleEndedAt
+      ? new Date(sample.sampleEndedAt).getTime()
+      : null;
+
+    if (sampleEndedAtMs !== null && sampleEndedAtMs < sampledAtMs) {
       ctx.addIssue({
         code: 'custom',
         message: 'sampleEndedAt must be greater than or equal to sampledAt',
@@ -101,13 +117,30 @@ export const appleHealthWorkoutSampleSchema = z
         message: 'heart_rate value must be greater than 0 bpm',
         path: ['value']
       });
-    }
-
-    if (sample.metric !== 'heart_rate' && sample.value < 0) {
+    } else if (sample.metric !== 'heart_rate' && sample.value < 0) {
       ctx.addIssue({
         code: 'custom',
         message: `${sample.metric} cannot be negative`,
         path: ['value']
+      });
+    }
+
+    if (!allowedAggregationsByMetric[sample.metric].includes(sample.aggregation)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `${sample.metric} does not support ${sample.aggregation} aggregation`,
+        path: ['aggregation']
+      });
+    }
+
+    if (
+      sample.aggregation === 'interval_delta' &&
+      (sampleEndedAtMs === null || sampleEndedAtMs <= sampledAtMs)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'interval_delta samples require sampleEndedAt after sampledAt',
+        path: ['sampleEndedAt']
       });
     }
   });
@@ -179,9 +212,7 @@ export const appleHealthWorkoutSchema = z
     const distanceAggregationModes = new Set(
       workout.samples
         .filter((sample) => sample.metric === 'distance')
-        .map((sample) =>
-          sample.aggregation === 'cumulative' ? 'cumulative' : 'interval_delta'
-        )
+        .map((sample) => sample.aggregation)
     );
 
     if (distanceAggregationModes.size > 1) {
