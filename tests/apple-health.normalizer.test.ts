@@ -4,6 +4,7 @@ import {
   normalizeAppleHealthWorkout,
   normalizeAppleHealthWorkoutSamples
 } from '../src/integrations/apple-health/apple-health.normalizer.js';
+import { appleHealthWorkoutSampleSchema } from '../src/integrations/apple-health/apple-health.schema.js';
 
 describe('Apple Health normalizer', () => {
   it('uses a fixed height of 175 when Apple Health weight has no height', () => {
@@ -88,5 +89,21 @@ describe('Apple Health normalizer', () => {
       associationKind: 'time_window',
       sourceName: 'Apple Watch'
     });
+  });
+
+  it('rejects non-canonical units before analysis', () => {
+    const result = appleHealthWorkoutSampleSchema.safeParse({
+      sourceRecordId: 'speed-1',
+      metric: 'running_speed',
+      sampledAt: '2026-08-14T07:01:00+01:00',
+      value: 8,
+      unit: 'km/h',
+      associationKind: 'workout_associated'
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === 'unit')).toBe(true);
+    }
   });
 });

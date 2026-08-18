@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const timestamp = z.iso.datetime({ offset: true });
+const MAX_WORKOUT_SAMPLES = 100000;
 
 export const appleHealthHeartRateSampleSchema = z.object({
   sourceRecordId: z.string().min(1).max(300),
@@ -19,6 +20,18 @@ export const appleHealthWorkoutSampleMetricSchema = z.enum([
   'running_vertical_oscillation',
   'running_ground_contact_time'
 ]);
+
+const canonicalUnitByMetric = {
+  heart_rate: 'bpm',
+  running_speed: 'm/s',
+  distance: 'm',
+  active_energy: 'kcal',
+  step_count: 'count',
+  running_power: 'W',
+  running_stride_length: 'm',
+  running_vertical_oscillation: 'm',
+  running_ground_contact_time: 'ms'
+} as const;
 
 export const appleHealthWorkoutSampleSchema = z
   .object({
@@ -46,6 +59,15 @@ export const appleHealthWorkoutSampleSchema = z
         code: 'custom',
         message: 'sampleEndedAt must be greater than or equal to sampledAt',
         path: ['sampleEndedAt']
+      });
+    }
+
+    const expectedUnit = canonicalUnitByMetric[sample.metric];
+    if (sample.unit !== expectedUnit) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `${sample.metric} unit must be ${expectedUnit}`,
+        path: ['unit']
       });
     }
 
@@ -95,17 +117,27 @@ export const appleHealthWorkoutSchema = z
     maxHeartRateBpm: z.number().positive().max(260).optional(),
     sourceName: z.string().max(200).optional(),
     sourceBundleIdentifier: z.string().max(300).optional(),
-    samples: z.array(appleHealthWorkoutSampleSchema).max(100000).default([]),
+    samples: z.array(appleHealthWorkoutSampleSchema).max(MAX_WORKOUT_SAMPLES).default([]),
     // Backward compatibility with the Phase 2 iOS bridge.
     heartRateSamples: z.array(appleHealthHeartRateSampleSchema).max(50000).default([])
   })
-  .refine(
-    (workout) => new Date(workout.endedAt).getTime() >= new Date(workout.startedAt).getTime(),
-    {
-      message: 'endedAt must be greater than or equal to startedAt',
-      path: ['endedAt']
+  .superRefine((workout, ctx) => {
+    if (new Date(workout.endedAt).getTime() < new Date(workout.startedAt).getTime()) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'endedAt must be greater than or equal to startedAt',
+        path: ['endedAt']
+      });
     }
-  );
+
+    if (workout.samples.length + workout.heartRateSamples.length > MAX_WORKOUT_SAMPLES) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `A workout may contain at most ${MAX_WORKOUT_SAMPLES} total samples`,
+        path: ['samples']
+      });
+    }
+  });
 
 export const appleHealthImportSchema = z.object({
   syncId: z.string().min(8).max(200),

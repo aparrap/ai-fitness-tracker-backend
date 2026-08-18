@@ -59,4 +59,50 @@ describe('HR vs pace analysis', () => {
     expect(analysis.heartRateDrift.changeBpm).toBeGreaterThan(9);
     expect(analysis.heartRateDrift.aerobicDecouplingPercent).toBeGreaterThan(5);
   });
+
+  it('falls back to distance when native speed covers only a small part of the run', () => {
+    const startMs = Date.parse('2026-08-14T07:00:00Z');
+    const samples: AnalysisSample[] = [];
+    const speedMps = 1000 / 450;
+
+    for (let elapsed = 0; elapsed <= 600; elapsed += 5) {
+      samples.push({
+        metricName: 'heart_rate',
+        sampledAt: new Date(startMs + elapsed * 1000).toISOString(),
+        value: 145,
+        aggregation: 'instantaneous'
+      });
+
+      if (elapsed < 600) {
+        samples.push({
+          metricName: 'distance',
+          sampledAt: new Date(startMs + elapsed * 1000).toISOString(),
+          sampleEndedAt: new Date(startMs + (elapsed + 5) * 1000).toISOString(),
+          value: speedMps * 5,
+          aggregation: 'interval_delta'
+        });
+      }
+    }
+
+    samples.push(
+      {
+        metricName: 'running_speed',
+        sampledAt: new Date(startMs).toISOString(),
+        value: speedMps,
+        aggregation: 'instantaneous'
+      },
+      {
+        metricName: 'running_speed',
+        sampledAt: new Date(startMs + 10_000).toISOString(),
+        value: speedMps,
+        aggregation: 'instantaneous'
+      }
+    );
+
+    const analysis = analyseHrPace(samples);
+    expect(analysis.speedSource).toBe('distance');
+    expect(analysis.analysedDurationSeconds).toBeGreaterThan(500);
+    expect(analysis.hrPaceBands.find((band) => band.targetBpm === 145)?.paceSecondsPerKm)
+      .toBeCloseTo(450, 1);
+  });
 });

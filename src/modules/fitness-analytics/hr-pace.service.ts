@@ -13,6 +13,7 @@ const MAX_INTERPOLATION_GAP_MS = 30_000;
 const MIN_BAND_SECONDS = 120;
 const HR_BAND_WIDTH = 2;
 const SPEED_BUCKET_MPS = 0.25;
+const DIRECT_SPEED_MIN_COVERAGE_RATIO = 0.8;
 
 function round(value: number, digits = 2): number {
   const multiplier = 10 ** digits;
@@ -144,28 +145,11 @@ function interpolate(points: NumericPoint[], targetMs: number): number | null {
   return left.value + (right.value - left.value) * fraction;
 }
 
-export function alignHeartRateAndPace(samples: AnalysisSample[]): {
-  points: AlignedRunningPoint[];
-  speedSource: 'running_speed' | 'distance' | null;
-} {
-  const heartRatePoints = toPoints(samples, 'heart_rate').filter(
-    (point) => point.value > 0 && point.value <= 260
-  );
-  const directSpeedPoints = toPoints(samples, 'running_speed').filter(
-    (point) => point.value >= 0
-  );
-  const speedPoints =
-    directSpeedPoints.length >= 2 ? directSpeedPoints : distanceToSpeedPoints(samples);
-  const speedSource =
-    directSpeedPoints.length >= 2
-      ? 'running_speed'
-      : speedPoints.length >= 2
-        ? 'distance'
-        : null;
-
-  if (heartRatePoints.length < 2 || speedPoints.length < 2 || speedSource === null) {
-    return { points: [], speedSource };
-  }
+function alignWithSpeedPoints(
+  heartRatePoints: NumericPoint[],
+  speedPoints: NumericPoint[]
+): AlignedRunningPoint[] {
+  if (heartRatePoints.length < 2 || speedPoints.length < 2) return [];
 
   const startMs = Math.max(
     heartRatePoints[0]!.timestampMs,
@@ -175,7 +159,7 @@ export function alignHeartRateAndPace(samples: AnalysisSample[]): {
     heartRatePoints.at(-1)!.timestampMs,
     speedPoints.at(-1)!.timestampMs
   );
-  if (endMs <= startMs) return { points: [], speedSource };
+  if (endMs <= startMs) return [];
 
   const aligned: AlignedRunningPoint[] = [];
   for (let currentMs = startMs; currentMs <= endMs; currentMs += GRID_SECONDS * 1000) {
@@ -192,7 +176,52 @@ export function alignHeartRateAndPace(samples: AnalysisSample[]): {
     });
   }
 
-  return { points: aligned, speedSource };
+  return aligned;
+}
+
+export function alignHeartRateAndPace(samples: AnalysisSample[]): {
+  points: AlignedRunningPoint[];
+  speedSource: 'running_speed' | 'distance' | null;
+} {
+  const heartRatePoints = toPoints(samples, 'heart_rate').filter(
+    (point) => point.value > 0 && point.value <= 260
+  );
+  const directSpeedPoints = toPoints(samples, 'running_speed').filter(
+    (point) => point.value >= 0
+  );
+  const distanceSpeedPoints = distanceToSpeedPoints(samples);
+
+  const directAligned = alignWithSpeedPoints(heartRatePoints, directSpeedPoints);
+  const distanceAligned = alignWithSpeedPoints(heartRatePoints, distanceSpeedPoints);
+
+  if (directAligned.length === 0 && distanceAligned.length === 0) {
+    return {
+      points: [],
+      speedSource:
+        directSpeedPoints.length >= 2
+          ? 'running_speed'
+          : distanceSpeedPoints.length >= 2
+            ? 'distance'
+            : null
+    };
+  }
+
+  if (distanceAligned.length === 0) {
+    return { points: directAligned, speedSource: 'running_speed' };
+  }
+
+  if (directAligned.length === 0) {
+    return { points: distanceAligned, speedSource: 'distance' };
+  }
+
+  const directCoverageSeconds = directAligned.length * GRID_SECONDS;
+  const distanceCoverageSeconds = distanceAligned.length * GRID_SECONDS;
+  const directCoverageIsComparable =
+    directCoverageSeconds >= distanceCoverageSeconds * DIRECT_SPEED_MIN_COVERAGE_RATIO;
+
+  return directCoverageIsComparable
+    ? { points: directAligned, speedSource: 'running_speed' }
+    : { points: distanceAligned, speedSource: 'distance' };
 }
 
 function buildHrPaceBand(points: AlignedRunningPoint[], targetBpm: number): HrPaceBand {

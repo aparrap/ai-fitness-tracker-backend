@@ -7,6 +7,7 @@ type MetricInsert = Database['public']['Tables']['workout_metric_samples']['Inse
 type MetricRow = Database['public']['Tables']['workout_metric_samples']['Row'];
 
 const CHUNK_SIZE = 500;
+const READ_PAGE_SIZE = 1000;
 
 export class WorkoutMetricRepository {
   constructor(private readonly supabase: FitnessSupabaseClient) {}
@@ -16,19 +17,29 @@ export class WorkoutMetricRepository {
     metricName = 'heart_rate',
     limit = 5000
   ): Promise<MetricRow[]> {
-    const { data, error } = await this.supabase
-      .from('workout_metric_samples')
-      .select('*')
-      .eq('workout_id', workoutId)
-      .eq('metric_name', metricName)
-      .order('sampled_at', { ascending: true })
-      .limit(limit);
+    const rows: MetricRow[] = [];
 
-    if (error) {
-      throw new RepositoryError('Failed to load workout metric samples', error.message);
+    for (let offset = 0; rows.length < limit; offset += READ_PAGE_SIZE) {
+      const pageSize = Math.min(READ_PAGE_SIZE, limit - rows.length);
+      const { data, error } = await this.supabase
+        .from('workout_metric_samples')
+        .select('*')
+        .eq('workout_id', workoutId)
+        .eq('metric_name', metricName)
+        .order('sampled_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) {
+        throw new RepositoryError('Failed to load workout metric samples', error.message);
+      }
+
+      const page = data ?? [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
     }
 
-    return data ?? [];
+    return rows;
   }
 
   async listByWorkoutMany(
@@ -38,19 +49,29 @@ export class WorkoutMetricRepository {
   ): Promise<MetricRow[]> {
     if (metricNames.length === 0) return [];
 
-    const { data, error } = await this.supabase
-      .from('workout_metric_samples')
-      .select('*')
-      .eq('workout_id', workoutId)
-      .in('metric_name', metricNames)
-      .order('sampled_at', { ascending: true })
-      .limit(limit);
+    const rows: MetricRow[] = [];
 
-    if (error) {
-      throw new RepositoryError('Failed to load workout metric samples', error.message);
+    for (let offset = 0; rows.length < limit; offset += READ_PAGE_SIZE) {
+      const pageSize = Math.min(READ_PAGE_SIZE, limit - rows.length);
+      const { data, error } = await this.supabase
+        .from('workout_metric_samples')
+        .select('*')
+        .eq('workout_id', workoutId)
+        .in('metric_name', metricNames)
+        .order('sampled_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) {
+        throw new RepositoryError('Failed to load workout metric samples', error.message);
+      }
+
+      const page = data ?? [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
     }
 
-    return data ?? [];
+    return rows;
   }
 
   async upsertAppleHealthSamples(

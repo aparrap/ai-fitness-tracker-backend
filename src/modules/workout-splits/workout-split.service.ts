@@ -72,18 +72,29 @@ export function buildDistanceTimeline(
     }
 
     for (const sample of distanceSamples) {
-      const sampleTime = timestamp(sample.sample_ended_at) ?? timestamp(sample.sampled_at);
-      if (sampleTime === null) continue;
+      const sampleStartMs = timestamp(sample.sampled_at);
+      if (sampleStartMs === null) continue;
 
       if (aggregationOf(sample) === 'cumulative') {
+        const sampleTime = timestamp(sample.sample_ended_at) ?? sampleStartMs;
         cumulativeDistance = Math.max(cumulativeDistance, sample.value);
-      } else {
-        // HealthKit distance quantity samples are interval quantities. The iOS bridge can
-        // explicitly send aggregation=interval_delta; this remains the safe default.
-        cumulativeDistance += sample.value;
+        points.push({ timestampMs: sampleTime, distanceM: cumulativeDistance });
+        continue;
       }
 
-      points.push({ timestampMs: sampleTime, distanceM: cumulativeDistance });
+      const sampleEndMs = timestamp(sample.sample_ended_at);
+      if (sampleEndMs !== null && sampleEndMs > sampleStartMs) {
+        // Preserve any gap/pause before the interval starts. The distance delta belongs
+        // only to [sampled_at, sample_ended_at], so distance must remain flat beforehand.
+        points.push({ timestampMs: sampleStartMs, distanceM: cumulativeDistance });
+        cumulativeDistance += sample.value;
+        points.push({ timestampMs: sampleEndMs, distanceM: cumulativeDistance });
+      } else {
+        // Older clients may not provide an interval end. Apply the delta at its timestamp
+        // rather than spreading it backwards across an unknown interval.
+        cumulativeDistance += sample.value;
+        points.push({ timestampMs: sampleStartMs, distanceM: cumulativeDistance });
+      }
     }
 
     const normalized = uniqueMonotonicPoints(points);
@@ -115,7 +126,13 @@ export function buildDistanceTimeline(
     const previous = speedSamples[index - 1]!;
     const current = speedSamples[index]!;
     const durationSeconds = (current.timestampMs - previous.timestampMs) / 1000;
-    if (durationSeconds <= 0 || durationSeconds > 60) continue;
+    if (durationSeconds <= 0) continue;
+
+    if (durationSeconds > 60) {
+      // Do not interpolate travelled distance across long missing spans or pauses.
+      points.push({ timestampMs: current.timestampMs, distanceM });
+      continue;
+    }
 
     distanceM += ((previous.speedMps + current.speedMps) / 2) * durationSeconds;
     points.push({ timestampMs: current.timestampMs, distanceM });
@@ -202,7 +219,7 @@ export function generateKilometreSplits(
           ? round(splitHeartRates.at(-1)!.bpm - splitHeartRates[0]!.bpm)
           : null,
       source: timeline.source,
-      algorithm_version: 'km-v1'
+      algorithm_version: 'km-v2'
     });
 
     startMs = endMs;

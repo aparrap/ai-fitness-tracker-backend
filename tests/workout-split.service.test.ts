@@ -72,4 +72,40 @@ describe('kilometre split generation', () => {
     expect(splits[0]?.avg_heart_rate_bpm).not.toBeNull();
     expect(splits[1]?.split_number).toBe(2);
   });
+
+  it('does not spread interval distance backwards across a pause', () => {
+    const start = Date.parse('2026-08-14T07:00:00Z');
+    const metrics: MetricRow[] = [
+      metric({
+        id: 1,
+        metric_name: 'distance',
+        value: 750,
+        sampled_at: new Date(start).toISOString(),
+        sample_ended_at: new Date(start + 300_000).toISOString(),
+        source_record_id: 'distance-before-pause',
+        raw_payload: { aggregation: 'interval_delta' }
+      }),
+      metric({
+        id: 2,
+        metric_name: 'distance',
+        value: 500,
+        sampled_at: new Date(start + 420_000).toISOString(),
+        sample_ended_at: new Date(start + 620_000).toISOString(),
+        source_record_id: 'distance-after-pause',
+        raw_payload: { aggregation: 'interval_delta' }
+      })
+    ];
+
+    const timeline = buildDistanceTimeline(
+      { started_at: new Date(start).toISOString() },
+      metrics
+    );
+    expect(timeline).not.toBeNull();
+
+    const splits = generateKilometreSplits(timeline!, []);
+    expect(splits).toHaveLength(1);
+    // 750 m by 5:00, 2:00 pause, then 250 m of a 500 m / 200 s interval = 1:40.
+    expect(splits[0]?.duration_seconds).toBeCloseTo(520, 2);
+    expect(splits[0]?.algorithm_version).toBe('km-v2');
+  });
 });

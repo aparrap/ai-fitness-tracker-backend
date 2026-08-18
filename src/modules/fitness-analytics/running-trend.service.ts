@@ -10,6 +10,8 @@ type WorkoutAnalysisPair = {
   analysis: WorkoutAnalysis;
 };
 
+const DAY_MS = 86_400_000;
+
 function round(value: number, digits = 2): number {
   const multiplier = 10 ** digits;
   return Math.round(value * multiplier) / multiplier;
@@ -24,12 +26,21 @@ function workoutTimestamp(workout: WorkoutRow): number {
   return new Date(workout.started_at ?? `${workout.started_on}T12:00:00Z`).getTime();
 }
 
+export function isWorkoutWithinPastDays(
+  workout: WorkoutRow,
+  nowMs: number,
+  days: number
+): boolean {
+  const ageMs = nowMs - workoutTimestamp(workout);
+  return ageMs >= 0 && ageMs <= days * DAY_MS;
+}
+
 export function linearTrend(values: DatedValue[]) {
   if (values.length < 2) return null;
   const ordered = [...values].sort((a, b) => a.timestampMs - b.timestampMs);
   const origin = ordered[0]!.timestampMs;
   const points = ordered.map((point) => ({
-    x: (point.timestampMs - origin) / 86_400_000,
+    x: (point.timestampMs - origin) / DAY_MS,
     y: point.value
   }));
   const xMean = average(points.map((point) => point.x))!;
@@ -64,8 +75,8 @@ export class RunningTrendService {
       (a, b) => workoutTimestamp(a) - workoutTimestamp(b)
     );
     const nowMs = Date.now();
-    const last90 = workouts.filter(
-      (workout) => nowMs - workoutTimestamp(workout) <= 90 * 86_400_000
+    const last90 = workouts.filter((workout) =>
+      isWorkoutWithinPastDays(workout, nowMs, 90)
     );
 
     const pairs: WorkoutAnalysisPair[] = [];
@@ -77,8 +88,8 @@ export class RunningTrendService {
     }
 
     const buildWindow = (days: number) => {
-      const windowPairs = pairs.filter(
-        ({ workout }) => nowMs - workoutTimestamp(workout) <= days * 86_400_000
+      const windowPairs = pairs.filter(({ workout }) =>
+        isWorkoutWithinPastDays(workout, nowMs, days)
       );
       const windowWorkouts = windowPairs.map(({ workout }) => workout);
       const totalDistanceM = windowWorkouts.reduce(

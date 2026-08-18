@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { linearTrend } from '../src/modules/fitness-analytics/running-trend.service.js';
+import {
+  isWorkoutWithinPastDays,
+  linearTrend
+} from '../src/modules/fitness-analytics/running-trend.service.js';
 
 describe('running trend statistics', () => {
   it('recognises faster pace at the same HR as an improvement', () => {
@@ -24,5 +27,21 @@ describe('running trend statistics', () => {
 
     expect(trend?.change).toBe(-7);
     expect(trend?.slopePerWeek).toBeLessThan(0);
+  });
+
+  it('excludes future-dated workouts from rolling windows and PBs', () => {
+    const nowMs = Date.parse('2026-08-18T12:00:00Z');
+    type Workout = Parameters<typeof isWorkoutWithinPastDays>[0];
+    const futureWorkout = {
+      started_at: '2026-08-19T12:00:00Z',
+      started_on: '2026-08-19'
+    } as Workout;
+    const recentWorkout = {
+      started_at: '2026-08-17T12:00:00Z',
+      started_on: '2026-08-17'
+    } as Workout;
+
+    expect(isWorkoutWithinPastDays(futureWorkout, nowMs, 90)).toBe(false);
+    expect(isWorkoutWithinPastDays(recentWorkout, nowMs, 7)).toBe(true);
   });
 });
