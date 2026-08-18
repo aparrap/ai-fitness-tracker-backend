@@ -14,7 +14,8 @@ const querySchema = z.object({
 
 const samplesQuerySchema = z.object({
   metrics: z.string().default('heart_rate,running_speed,distance'),
-  limit: z.coerce.number().int().min(1).max(100000).default(50000)
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(500).default(250)
 });
 
 export async function registerWorkoutMetricRoutes(
@@ -46,6 +47,18 @@ export async function registerWorkoutMetricRoutes(
       )
     );
 
-    return metricRepository.listByWorkoutMany(id, metrics, query.limit);
+    const result = await metricRepository.pageByWorkoutMany(
+      id,
+      metrics,
+      query.page,
+      query.pageSize
+    );
+
+    return {
+      items: result.items,
+      page: query.page,
+      pageSize: query.pageSize,
+      nextPage: result.nextPage
+    };
   });
 }
