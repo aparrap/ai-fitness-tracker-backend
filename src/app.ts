@@ -20,6 +20,7 @@ import { registerWorkoutMetricRoutes } from './modules/workout-metrics/workout-m
 import { WorkoutSplitRepository } from './modules/workout-splits/workout-split.repository.js';
 import { WorkoutSplitService } from './modules/workout-splits/workout-split.service.js';
 import { registerWorkoutSplitRoutes } from './modules/workout-splits/workout-split.routes.js';
+import { WorkoutAnalysisRepository } from './modules/fitness-analytics/workout-analysis.repository.js';
 import { WorkoutAnalysisService } from './modules/fitness-analytics/workout-analysis.service.js';
 import { RunningTrendService } from './modules/fitness-analytics/running-trend.service.js';
 import { registerFitnessAnalyticsRoutes } from './modules/fitness-analytics/fitness-analytics.routes.js';
@@ -55,6 +56,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const workoutRepository = new WorkoutRepository(options.supabase, options.profileId);
   const metricRepository = new WorkoutMetricRepository(options.supabase);
   const splitRepository = new WorkoutSplitRepository(options.supabase);
+  const analysisRepository = new WorkoutAnalysisRepository(options.supabase);
   const syncRepository = new DataSyncRepository(options.supabase, options.profileId);
   const workoutSourceRepository = new WorkoutSourceRepository(
     options.supabase,
@@ -72,11 +74,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const workoutAnalysisService = new WorkoutAnalysisService(
     workoutService,
     metricRepository,
-    splitService
+    splitService,
+    analysisRepository
   );
   const runningTrendService = new RunningTrendService(
     workoutService,
-    workoutAnalysisService
+    workoutAnalysisService,
+    analysisRepository
   );
   const appleHealthImportService = new AppleHealthImportService(
     weightService,
@@ -84,7 +88,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     metricRepository,
     workoutSourceRepository,
     syncRepository,
-    splitService
+    splitService,
+    workoutAnalysisService
   );
 
   app.get('/health', async () => ({
