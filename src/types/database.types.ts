@@ -58,9 +58,9 @@ export type Database = {
         Relationships: [];
       };
       ai_analyses: {
-        Row: { id: string; profile_id: string; workout_id: string | null; analysis_type: string; period_start: string | null; period_end: string | null; model: string | null; prompt_version: string | null; summary: string | null; result: Json; input_snapshot: Json | null; created_at: string; updated_at: string };
-        Insert: { id?: string; profile_id: string; workout_id?: string | null; analysis_type: string; period_start?: string | null; period_end?: string | null; model?: string | null; prompt_version?: string | null; summary?: string | null; result?: Json; input_snapshot?: Json | null; created_at?: string; updated_at?: string };
-        Update: { workout_id?: string | null; analysis_type?: string; period_start?: string | null; period_end?: string | null; model?: string | null; prompt_version?: string | null; summary?: string | null; result?: Json; input_snapshot?: Json | null; updated_at?: string };
+        Row: { id: string; profile_id: string; workout_id: string | null; analysis_type: string; period_start: string | null; period_end: string | null; model: string | null; prompt_version: string | null; summary: string | null; result: Json; input_snapshot: Json | null; input_hash: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; profile_id: string; workout_id?: string | null; analysis_type: string; period_start?: string | null; period_end?: string | null; model?: string | null; prompt_version?: string | null; summary?: string | null; result?: Json; input_snapshot?: Json | null; input_hash?: string | null; created_at?: string; updated_at?: string };
+        Update: { workout_id?: string | null; analysis_type?: string; period_start?: string | null; period_end?: string | null; model?: string | null; prompt_version?: string | null; summary?: string | null; result?: Json; input_snapshot?: Json | null; input_hash?: string | null; updated_at?: string };
         Relationships: [];
       };
     };
