@@ -4,8 +4,10 @@ import type { WorkoutMetricRepository } from '../workout-metrics/workout-metric.
 import type { WorkoutSplitService } from '../workout-splits/workout-split.service.js';
 import { analyseHrPace } from './hr-pace.service.js';
 import type { AnalysisSample } from './fitness-analytics.types.js';
+import type { WorkoutAnalysisRepository } from './workout-analysis.repository.js';
 
 type MetricRow = Database['public']['Tables']['workout_metric_samples']['Row'];
+type SplitRow = Database['public']['Tables']['workout_splits']['Row'];
 type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
 
 function aggregationOf(row: MetricRow): string | undefined {
@@ -30,7 +32,8 @@ export class WorkoutAnalysisService {
   constructor(
     private readonly workoutService: WorkoutService,
     private readonly metricRepository: WorkoutMetricRepository,
-    private readonly splitService: WorkoutSplitService
+    private readonly splitService: WorkoutSplitService,
+    private readonly analysisRepository?: WorkoutAnalysisRepository
   ) {}
 
   async analyse(workoutId: string) {
@@ -44,11 +47,12 @@ export class WorkoutAnalysisService {
       ['heart_rate', 'running_speed', 'distance'],
       100000
     );
-    const physiology = analyseHrPace(metrics.map(toAnalysisSample));
-
-    // Splits are recalculated during import when new distance/speed data arrives.
-    // Read-only analytics must not rewrite persisted data on every GET/trend request.
     const splits = await this.splitService.list(workout.id);
+    return this.buildAnalysis(workout, metrics, splits);
+  }
+
+  buildAnalysis(workout: WorkoutRow, metrics: MetricRow[], splits: SplitRow[]) {
+    const physiology = analyseHrPace(metrics.map(toAnalysisSample));
     const kilometreSplits = splits.filter((split) => split.split_kind === 'kilometre');
     const fastestKilometre = kilometreSplits
       .filter((split) => split.avg_pace_seconds_per_km !== null)
@@ -78,5 +82,13 @@ export class WorkoutAnalysisService {
           }
         : null
     };
+  }
+
+  async recalculateSnapshot(workoutId: string) {
+    const analysis = await this.analyse(workoutId);
+    if (this.analysisRepository) {
+      await this.analysisRepository.upsert(workoutId, analysis);
+    }
+    return analysis;
   }
 }
