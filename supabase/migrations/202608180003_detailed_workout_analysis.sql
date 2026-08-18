@@ -37,11 +37,11 @@ begin
 end
 $$;
 
+-- This access path supports chronological scans across all metrics for a workout.
+-- The initial schema already has (workout_id, metric_name, sampled_at), so do not
+-- duplicate that index here.
 create index if not exists idx_workout_metric_samples_workout_time
   on public.workout_metric_samples(workout_id, sampled_at);
-
-create index if not exists idx_workout_metric_samples_metric_time
-  on public.workout_metric_samples(workout_id, metric_name, sampled_at);
 
 create table if not exists public.workout_splits (
   id bigint generated always as identity primary key,
@@ -140,10 +140,9 @@ begin
 end
 $$;
 
+-- The unique index also serves reads ordered by workout/split kind/number, so a
+-- second identical non-unique index would only add write/storage overhead.
 create unique index if not exists uq_workout_splits_workout_kind_number
-  on public.workout_splits(workout_id, split_kind, split_number);
-
-create index if not exists idx_workout_splits_workout
   on public.workout_splits(workout_id, split_kind, split_number);
 
 alter table public.workout_splits enable row level security;

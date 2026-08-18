@@ -4,7 +4,10 @@ import {
   normalizeAppleHealthWorkout,
   normalizeAppleHealthWorkoutSamples
 } from '../src/integrations/apple-health/apple-health.normalizer.js';
-import { appleHealthWorkoutSampleSchema } from '../src/integrations/apple-health/apple-health.schema.js';
+import {
+  appleHealthWorkoutSampleSchema,
+  appleHealthWorkoutSchema
+} from '../src/integrations/apple-health/apple-health.schema.js';
 
 describe('Apple Health normalizer', () => {
   it('uses a fixed height of 175 when Apple Health weight has no height', () => {
@@ -104,6 +107,57 @@ describe('Apple Health normalizer', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues.some((issue) => issue.path[0] === 'unit')).toBe(true);
+    }
+  });
+
+  it('rejects implausibly large quantitative samples', () => {
+    const result = appleHealthWorkoutSampleSchema.safeParse({
+      sourceRecordId: 'distance-1',
+      metric: 'distance',
+      sampledAt: '2026-08-14T07:01:00+01:00',
+      value: 1e12,
+      unit: 'm',
+      associationKind: 'workout_associated',
+      aggregation: 'interval_delta'
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === 'value')).toBe(true);
+    }
+  });
+
+  it('rejects mixed distance aggregation modes within one workout', () => {
+    const result = appleHealthWorkoutSchema.safeParse({
+      sourceRecordId: 'workout-mixed-distance',
+      activityType: 'running',
+      startedAt: '2026-08-14T07:00:00+01:00',
+      startedOn: '2026-08-14',
+      endedAt: '2026-08-14T07:30:00+01:00',
+      samples: [
+        {
+          sourceRecordId: 'distance-delta',
+          metric: 'distance',
+          sampledAt: '2026-08-14T07:01:00+01:00',
+          sampleEndedAt: '2026-08-14T07:01:10+01:00',
+          value: 25,
+          unit: 'm',
+          aggregation: 'interval_delta'
+        },
+        {
+          sourceRecordId: 'distance-cumulative',
+          metric: 'distance',
+          sampledAt: '2026-08-14T07:01:10+01:00',
+          value: 50,
+          unit: 'm',
+          aggregation: 'cumulative'
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === 'samples')).toBe(true);
     }
   });
 });

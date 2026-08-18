@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Database } from '../src/types/database.types.js';
 import {
   buildDistanceTimeline,
-  generateKilometreSplits
+  generateKilometreSplits,
+  MAX_KILOMETRE_SPLITS
 } from '../src/modules/workout-splits/workout-split.service.js';
 
 type MetricRow = Database['public']['Tables']['workout_metric_samples']['Row'];
@@ -106,6 +107,22 @@ describe('kilometre split generation', () => {
     expect(splits).toHaveLength(1);
     // 750 m by 5:00, 2:00 pause, then 250 m of a 500 m / 200 s interval = 1:40.
     expect(splits[0]?.duration_seconds).toBeCloseTo(520, 2);
-    expect(splits[0]?.algorithm_version).toBe('km-v2');
+    expect(splits[0]?.algorithm_version).toBe('km-v3');
+  });
+
+  it('caps generated kilometre splits defensively', () => {
+    const start = Date.parse('2026-08-14T07:00:00Z');
+    const excessiveDistanceM = (MAX_KILOMETRE_SPLITS + 100) * 1000;
+    const timeline = {
+      source: 'test',
+      points: [
+        { timestampMs: start, distanceM: 0 },
+        { timestampMs: start + 24 * 60 * 60 * 1000, distanceM: excessiveDistanceM }
+      ]
+    };
+
+    const splits = generateKilometreSplits(timeline, []);
+    expect(splits).toHaveLength(MAX_KILOMETRE_SPLITS);
+    expect(splits.at(-1)?.split_number).toBe(MAX_KILOMETRE_SPLITS);
   });
 });

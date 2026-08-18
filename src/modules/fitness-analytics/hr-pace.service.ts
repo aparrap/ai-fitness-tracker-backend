@@ -70,9 +70,18 @@ function distanceToSpeedPoints(samples: AnalysisSample[]): NumericPoint[] {
 
   if (distanceSamples.length === 0) return [];
 
-  const cumulativeMode = distanceSamples.some(
-    (sample) => sample.aggregation === 'cumulative'
+  const aggregationModes = new Set(
+    distanceSamples.map((sample) =>
+      sample.aggregation === 'cumulative' ? 'cumulative' : 'interval_delta'
+    )
   );
+
+  // New imports reject mixed distance aggregation modes at the schema boundary.
+  // Return no derived speed for any legacy mixed data rather than silently combining
+  // incompatible cumulative and interval-delta semantics.
+  if (aggregationModes.size > 1) return [];
+
+  const cumulativeMode = aggregationModes.has('cumulative');
   const points: NumericPoint[] = [];
 
   if (cumulativeMode) {
@@ -113,11 +122,27 @@ function distanceToSpeedPoints(samples: AnalysisSample[]): NumericPoint[] {
   return points;
 }
 
+function lowerBound(points: NumericPoint[], targetMs: number): number {
+  let low = 0;
+  let high = points.length;
+
+  while (low < high) {
+    const midpoint = Math.floor((low + high) / 2);
+    if (points[midpoint]!.timestampMs < targetMs) {
+      low = midpoint + 1;
+    } else {
+      high = midpoint;
+    }
+  }
+
+  return low;
+}
+
 function interpolate(points: NumericPoint[], targetMs: number): number | null {
   if (points.length === 0) return null;
 
-  let rightIndex = points.findIndex((point) => point.timestampMs >= targetMs);
-  if (rightIndex === -1) rightIndex = points.length - 1;
+  let rightIndex = lowerBound(points, targetMs);
+  if (rightIndex >= points.length) rightIndex = points.length - 1;
   const right = points[rightIndex]!;
   const left = points[Math.max(0, rightIndex - 1)]!;
 

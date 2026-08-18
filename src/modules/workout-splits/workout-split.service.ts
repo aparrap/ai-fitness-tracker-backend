@@ -17,6 +17,8 @@ type DistanceTimeline = {
   source: string;
 };
 
+export const MAX_KILOMETRE_SPLITS = 500;
+
 function timestamp(value: string | null): number | null {
   if (!value) return null;
   const parsed = new Date(value).getTime();
@@ -170,11 +172,19 @@ export function generateKilometreSplits(
   heartRateSamples: MetricRow[]
 ): Omit<SplitInsert, 'workout_id'>[] {
   const finalDistanceM = timeline.points.at(-1)?.distanceM ?? 0;
-  const fullKilometres = Math.floor(finalDistanceM / 1000);
+  const fullKilometres = Math.min(
+    Math.floor(finalDistanceM / 1000),
+    MAX_KILOMETRE_SPLITS
+  );
   if (fullKilometres <= 0) return [];
 
   const heartRates = heartRateSamples
-    .filter((sample) => sample.metric_name === 'heart_rate' && sample.value > 0)
+    .filter(
+      (sample) =>
+        sample.metric_name === 'heart_rate' &&
+        sample.value > 0 &&
+        sample.value <= 260
+    )
     .map((sample) => ({
       timestampMs: timestamp(sample.sampled_at),
       bpm: sample.value
@@ -219,7 +229,7 @@ export function generateKilometreSplits(
           ? round(splitHeartRates.at(-1)!.bpm - splitHeartRates[0]!.bpm)
           : null,
       source: timeline.source,
-      algorithm_version: 'km-v2'
+      algorithm_version: 'km-v3'
     });
 
     startMs = endMs;

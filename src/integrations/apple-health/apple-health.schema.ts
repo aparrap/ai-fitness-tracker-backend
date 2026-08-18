@@ -2,6 +2,9 @@ import { z } from 'zod';
 
 const timestamp = z.iso.datetime({ offset: true });
 const MAX_WORKOUT_SAMPLES = 100000;
+const MAX_WORKOUT_DURATION_SECONDS = 7 * 24 * 60 * 60;
+const MAX_WORKOUT_DISTANCE_M = 500000;
+const MAX_WORKOUT_ACTIVE_ENERGY_KCAL = 50000;
 
 export const appleHealthHeartRateSampleSchema = z.object({
   sourceRecordId: z.string().min(1).max(300),
@@ -31,6 +34,18 @@ const canonicalUnitByMetric = {
   running_stride_length: 'm',
   running_vertical_oscillation: 'm',
   running_ground_contact_time: 'ms'
+} as const;
+
+const maxValueByMetric = {
+  heart_rate: 260,
+  running_speed: 20,
+  distance: MAX_WORKOUT_DISTANCE_M,
+  active_energy: MAX_WORKOUT_ACTIVE_ENERGY_KCAL,
+  step_count: 1_000_000,
+  running_power: 5_000,
+  running_stride_length: 5,
+  running_vertical_oscillation: 1,
+  running_ground_contact_time: 5_000
 } as const;
 
 export const appleHealthWorkoutSampleSchema = z
@@ -71,20 +86,24 @@ export const appleHealthWorkoutSampleSchema = z
       });
     }
 
-    if (sample.metric === 'heart_rate' && (sample.value <= 0 || sample.value > 260)) {
+    const maxValue = maxValueByMetric[sample.metric];
+    if (sample.value > maxValue) {
       ctx.addIssue({
         code: 'custom',
-        message: 'heart_rate value must be between 0 and 260 bpm',
+        message: `${sample.metric} cannot exceed ${maxValue} ${expectedUnit}`,
         path: ['value']
       });
     }
 
-    if (
-      ['running_speed', 'distance', 'active_energy', 'step_count'].includes(
-        sample.metric
-      ) &&
-      sample.value < 0
-    ) {
+    if (sample.metric === 'heart_rate' && sample.value <= 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'heart_rate value must be greater than 0 bpm',
+        path: ['value']
+      });
+    }
+
+    if (sample.metric !== 'heart_rate' && sample.value < 0) {
       ctx.addIssue({
         code: 'custom',
         message: `${sample.metric} cannot be negative`,
@@ -109,10 +128,19 @@ export const appleHealthWorkoutSchema = z
     startedAt: timestamp,
     startedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endedAt: timestamp,
-    durationSeconds: z.number().int().nonnegative().optional(),
-    distanceM: z.number().nonnegative().optional(),
-    activeEnergyKcal: z.number().nonnegative().optional(),
-    elevationGainM: z.number().optional(),
+    durationSeconds: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_WORKOUT_DURATION_SECONDS)
+      .optional(),
+    distanceM: z.number().nonnegative().max(MAX_WORKOUT_DISTANCE_M).optional(),
+    activeEnergyKcal: z
+      .number()
+      .nonnegative()
+      .max(MAX_WORKOUT_ACTIVE_ENERGY_KCAL)
+      .optional(),
+    elevationGainM: z.number().min(-20000).max(20000).optional(),
     avgHeartRateBpm: z.number().positive().max(260).optional(),
     maxHeartRateBpm: z.number().positive().max(260).optional(),
     sourceName: z.string().max(200).optional(),
@@ -134,6 +162,22 @@ export const appleHealthWorkoutSchema = z
       ctx.addIssue({
         code: 'custom',
         message: `A workout may contain at most ${MAX_WORKOUT_SAMPLES} total samples`,
+        path: ['samples']
+      });
+    }
+
+    const distanceAggregationModes = new Set(
+      workout.samples
+        .filter((sample) => sample.metric === 'distance')
+        .map((sample) =>
+          sample.aggregation === 'cumulative' ? 'cumulative' : 'interval_delta'
+        )
+    );
+
+    if (distanceAggregationModes.size > 1) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'distance samples must use one aggregation mode per workout',
         path: ['samples']
       });
     }

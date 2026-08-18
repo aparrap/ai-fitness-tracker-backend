@@ -40,9 +40,11 @@ export class WorkoutSplitRepository {
       return [];
     }
 
+    const recalculatedAt = new Date().toISOString();
     const rows: SplitInsert[] = splits.map((split) => ({
       ...split,
-      workout_id: workoutId
+      workout_id: workoutId,
+      updated_at: recalculatedAt
     }));
 
     const { error: upsertError } = await this.supabase

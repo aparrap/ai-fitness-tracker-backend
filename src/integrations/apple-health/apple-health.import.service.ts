@@ -130,8 +130,8 @@ export class AppleHealthImportService {
 
         if (
           this.splitService &&
-          workoutSamples.some(
-            (sample) => sample.metric === 'distance' || sample.metric === 'running_speed'
+          workoutSamples.some((sample) =>
+            ['heart_rate', 'distance', 'running_speed'].includes(sample.metric)
           )
         ) {
           await this.splitService.recalculateKilometreSplits(workout.id);
