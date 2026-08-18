@@ -105,4 +105,32 @@ describe('HR vs pace analysis', () => {
     expect(analysis.hrPaceBands.find((band) => band.targetBpm === 145)?.paceSecondsPerKm)
       .toBeCloseTo(450, 1);
   });
+
+  it('does not count a long interior telemetry gap as analysed running time', () => {
+    const startMs = Date.parse('2026-08-14T07:00:00Z');
+    const samples: AnalysisSample[] = [];
+    const speedMps = 1000 / 450;
+
+    for (const elapsed of [0, 5, 10, 15, 20, 65, 70, 75, 80]) {
+      const sampledAt = new Date(startMs + elapsed * 1000).toISOString();
+      samples.push(
+        {
+          metricName: 'heart_rate',
+          sampledAt,
+          value: 145,
+          aggregation: 'instantaneous'
+        },
+        {
+          metricName: 'running_speed',
+          sampledAt,
+          value: speedMps,
+          aggregation: 'instantaneous'
+        }
+      );
+    }
+
+    const analysis = analyseHrPace(samples);
+    // The 45-second interior hole must not be filled onto the five-second grid.
+    expect(analysis.analysedDurationSeconds).toBeLessThan(80);
+  });
 });
