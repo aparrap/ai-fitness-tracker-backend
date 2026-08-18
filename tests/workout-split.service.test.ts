@@ -21,6 +21,7 @@ function metric(partial: Partial<MetricRow> & Pick<MetricRow, 'metric_name' | 'v
     association_kind: 'workout_associated',
     source_name: null,
     source_bundle_identifier: null,
+    aggregation: null,
     raw_payload: null,
     created_at: '2026-08-14T07:00:00Z',
     ...partial
@@ -43,6 +44,7 @@ describe('kilometre split generation', () => {
           sampled_at: new Date(segmentStart).toISOString(),
           sample_ended_at: new Date(segmentEnd).toISOString(),
           source_record_id: `distance-${segment}`,
+          aggregation: 'interval_delta',
           raw_payload: { aggregation: 'interval_delta' }
         })
       );
@@ -55,7 +57,8 @@ describe('kilometre split generation', () => {
           metric_name: 'heart_rate',
           value: 140 + elapsed / 300,
           sampled_at: new Date(start + elapsed * 1000).toISOString(),
-          source_record_id: `hr-${elapsed}`
+          source_record_id: `hr-${elapsed}`,
+          aggregation: 'instantaneous'
         })
       );
     }
@@ -84,6 +87,7 @@ describe('kilometre split generation', () => {
         sampled_at: new Date(start).toISOString(),
         sample_ended_at: new Date(start + 300_000).toISOString(),
         source_record_id: 'distance-before-pause',
+        aggregation: 'interval_delta',
         raw_payload: { aggregation: 'interval_delta' }
       }),
       metric({
@@ -93,6 +97,7 @@ describe('kilometre split generation', () => {
         sampled_at: new Date(start + 420_000).toISOString(),
         sample_ended_at: new Date(start + 620_000).toISOString(),
         source_record_id: 'distance-after-pause',
+        aggregation: 'interval_delta',
         raw_payload: { aggregation: 'interval_delta' }
       })
     ];
