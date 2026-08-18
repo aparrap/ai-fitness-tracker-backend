@@ -267,6 +267,31 @@ export type Database = {
         };
         Relationships: [];
       };
+      workout_analysis_snapshots: {
+        Row: {
+          workout_id: string;
+          analysis: Json;
+          algorithm_version: string;
+          computed_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          workout_id: string;
+          analysis: Json;
+          algorithm_version?: string;
+          computed_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          analysis?: Json;
+          algorithm_version?: string;
+          computed_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       workout_source_links: {
         Row: {
           id: string;
@@ -393,7 +418,15 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      replace_workout_kilometre_splits: {
+        Args: {
+          p_workout_id: string;
+          p_splits: Json;
+        };
+        Returns: Database['public']['Tables']['workout_splits']['Row'][];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
