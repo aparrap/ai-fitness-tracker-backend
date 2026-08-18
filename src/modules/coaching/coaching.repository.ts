@@ -8,6 +8,9 @@ import {
 } from './coaching.types.js';
 
 type AnalysisRow = Database['public']['Tables']['ai_analyses']['Row'];
+type AnalysisRowWithHash = AnalysisRow & { input_hash: string | null };
+type AnalysisInsert = Database['public']['Tables']['ai_analyses']['Insert'];
+type AnalysisInsertWithHash = AnalysisInsert & { input_hash: string };
 
 export class CoachingRepository {
   constructor(
@@ -33,31 +36,49 @@ export class CoachingRepository {
     return data;
   }
 
+  async getCurrent(workoutId: string): Promise<AnalysisRowWithHash | null> {
+    const { data, error } = await this.supabase
+      .from('ai_analyses')
+      .select('*')
+      .eq('profile_id', this.profileId)
+      .eq('workout_id', workoutId)
+      .eq('analysis_type', WORKOUT_COACHING_ANALYSIS_TYPE)
+      .eq('prompt_version', WORKOUT_COACHING_PROMPT_VERSION)
+      .maybeSingle();
+
+    if (error) {
+      throw new RepositoryError('Failed to load current workout coaching evaluation', error.message);
+    }
+
+    return data as AnalysisRowWithHash | null;
+  }
+
   async upsert(params: {
     workoutId: string;
     model: string;
+    inputHash: string;
     evaluation: WorkoutCoachingEvaluation;
     inputSnapshot: unknown;
   }): Promise<AnalysisRow> {
     const now = new Date().toISOString();
+    const row: AnalysisInsertWithHash = {
+      profile_id: this.profileId,
+      workout_id: params.workoutId,
+      analysis_type: WORKOUT_COACHING_ANALYSIS_TYPE,
+      model: params.model,
+      prompt_version: WORKOUT_COACHING_PROMPT_VERSION,
+      summary: params.evaluation.summary,
+      result: params.evaluation as unknown as Json,
+      input_snapshot: params.inputSnapshot as Json,
+      input_hash: params.inputHash,
+      updated_at: now
+    };
+
     const { data, error } = await this.supabase
       .from('ai_analyses')
-      .upsert(
-        {
-          profile_id: this.profileId,
-          workout_id: params.workoutId,
-          analysis_type: WORKOUT_COACHING_ANALYSIS_TYPE,
-          model: params.model,
-          prompt_version: WORKOUT_COACHING_PROMPT_VERSION,
-          summary: params.evaluation.summary,
-          result: params.evaluation as unknown as Json,
-          input_snapshot: params.inputSnapshot as Json,
-          updated_at: now
-        },
-        {
-          onConflict: 'profile_id,workout_id,analysis_type,prompt_version'
-        }
-      )
+      .upsert(row, {
+        onConflict: 'profile_id,workout_id,analysis_type,prompt_version'
+      })
       .select('*')
       .single();
 
