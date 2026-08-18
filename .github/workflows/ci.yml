@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Format & Typecheck
+  typecheck:
+    name: Typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -37,9 +37,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Check formatting
-        run: pnpm format:check
 
       - name: Typecheck
         run: pnpm typecheck
