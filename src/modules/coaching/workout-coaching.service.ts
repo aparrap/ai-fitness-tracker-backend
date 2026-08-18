@@ -9,6 +9,29 @@ import type {
 
 type WorkoutRow = Database['public']['Tables']['workouts']['Row'];
 
+const INTERNAL_COACHING_KEYS = new Set([
+  'id',
+  'workoutId',
+  'sourceRecordId',
+  'generatedAt'
+]);
+
+function coachingProjection(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(coachingProjection);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !INTERNAL_COACHING_KEYS.has(key))
+        .map(([key, nested]) => [key, coachingProjection(nested)])
+    );
+  }
+
+  return value;
+}
+
 function inputHash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -33,14 +56,13 @@ export class WorkoutCoachingService {
       };
     }
 
-    const trends =
+    const runningTrends =
       params.workout.activity_type === 'running'
         ? await this.runningTrendService.getRunningEfficiencyTrends()
         : null;
 
-    const inputSnapshot = {
+    const inputSnapshot = coachingProjection({
       workout: {
-        id: params.workout.id,
         activityType: params.workout.activity_type,
         startedOn: params.workout.started_on,
         startedAt: params.workout.started_at,
@@ -52,8 +74,8 @@ export class WorkoutCoachingService {
         averagePaceSecondsPerKm: params.workout.avg_pace_seconds_per_km
       },
       analysis: params.analysis,
-      trends
-    };
+      trends: runningTrends
+    });
     const hash = inputHash(inputSnapshot);
     const existing = await this.repository.getCurrent(params.workout.id);
 
@@ -70,7 +92,11 @@ export class WorkoutCoachingService {
       };
     }
 
-    const evaluation = await this.client.evaluate(inputSnapshot);
+    const evaluation = await this.client.evaluate(inputSnapshot as {
+      workout: unknown;
+      analysis: unknown;
+      trends: unknown | null;
+    });
     await this.repository.upsert({
       workoutId: params.workout.id,
       model: this.client.model,
