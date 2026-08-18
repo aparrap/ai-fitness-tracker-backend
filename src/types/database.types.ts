@@ -162,11 +162,16 @@ export type Database = {
           workout_id: string;
           metric_name: string;
           sampled_at: string | null;
+          sample_ended_at: string | null;
           elapsed_seconds: number | null;
           value: number;
           unit: string;
           source_provider: string;
           source_record_id: string;
+          association_kind: string | null;
+          source_name: string | null;
+          source_bundle_identifier: string | null;
+          aggregation: string | null;
           raw_payload: Json | null;
           created_at: string;
         };
@@ -175,23 +180,118 @@ export type Database = {
           workout_id: string;
           metric_name: string;
           sampled_at?: string | null;
+          sample_ended_at?: string | null;
           elapsed_seconds?: number | null;
           value: number;
           unit: string;
           source_provider: string;
           source_record_id: string;
+          association_kind?: string | null;
+          source_name?: string | null;
+          source_bundle_identifier?: string | null;
+          aggregation?: string | null;
           raw_payload?: Json | null;
           created_at?: string;
         };
         Update: {
           metric_name?: string;
           sampled_at?: string | null;
+          sample_ended_at?: string | null;
           elapsed_seconds?: number | null;
           value?: number;
           unit?: string;
           source_provider?: string;
           source_record_id?: string;
+          association_kind?: string | null;
+          source_name?: string | null;
+          source_bundle_identifier?: string | null;
+          aggregation?: string | null;
           raw_payload?: Json | null;
+        };
+        Relationships: [];
+      };
+      workout_splits: {
+        Row: {
+          id: number;
+          workout_id: string;
+          split_kind: string;
+          split_number: number;
+          started_at: string | null;
+          ended_at: string | null;
+          start_distance_m: number | null;
+          end_distance_m: number | null;
+          distance_m: number;
+          duration_seconds: number;
+          avg_pace_seconds_per_km: number | null;
+          avg_heart_rate_bpm: number | null;
+          max_heart_rate_bpm: number | null;
+          heart_rate_change_bpm: number | null;
+          source: string;
+          algorithm_version: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: never;
+          workout_id: string;
+          split_kind?: string;
+          split_number: number;
+          started_at?: string | null;
+          ended_at?: string | null;
+          start_distance_m?: number | null;
+          end_distance_m?: number | null;
+          distance_m: number;
+          duration_seconds: number;
+          avg_pace_seconds_per_km?: number | null;
+          avg_heart_rate_bpm?: number | null;
+          max_heart_rate_bpm?: number | null;
+          heart_rate_change_bpm?: number | null;
+          source?: string;
+          algorithm_version?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          split_kind?: string;
+          split_number?: number;
+          started_at?: string | null;
+          ended_at?: string | null;
+          start_distance_m?: number | null;
+          end_distance_m?: number | null;
+          distance_m?: number;
+          duration_seconds?: number;
+          avg_pace_seconds_per_km?: number | null;
+          avg_heart_rate_bpm?: number | null;
+          max_heart_rate_bpm?: number | null;
+          heart_rate_change_bpm?: number | null;
+          source?: string;
+          algorithm_version?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      workout_analysis_snapshots: {
+        Row: {
+          workout_id: string;
+          analysis: Json;
+          algorithm_version: string;
+          computed_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          workout_id: string;
+          analysis: Json;
+          algorithm_version?: string;
+          computed_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          analysis?: Json;
+          algorithm_version?: string;
+          computed_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };
@@ -321,7 +421,15 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      replace_workout_kilometre_splits: {
+        Args: {
+          p_workout_id: string;
+          p_splits: Json;
+        };
+        Returns: Database['public']['Tables']['workout_splits']['Row'][];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

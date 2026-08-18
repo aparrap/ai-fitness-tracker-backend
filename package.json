@@ -1,6 +1,6 @@
 {
   "name": "ai-fitness-tracker-backend",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Backend API for the AI Fitness Tracker using Node.js, TypeScript, Fastify and Supabase.",

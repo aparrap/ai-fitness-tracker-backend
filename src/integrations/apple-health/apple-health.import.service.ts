@@ -3,6 +3,8 @@ import type { WeightService } from '../../modules/weights/weight.service.js';
 import type { WorkoutService } from '../../modules/workouts/workout.service.js';
 import type { WorkoutMetricRepository } from '../../modules/workout-metrics/workout-metric.repository.js';
 import type { WorkoutSourceRepository } from '../../modules/workout-sources/workout-source.repository.js';
+import type { WorkoutSplitService } from '../../modules/workout-splits/workout-split.service.js';
+import type { WorkoutAnalysisService } from '../../modules/fitness-analytics/workout-analysis.service.js';
 import type {
   DataSyncRepository,
   SyncCounts
@@ -10,7 +12,8 @@ import type {
 import type { AppleHealthImportInput } from './apple-health.schema.js';
 import {
   normalizeAppleHealthWeight,
-  normalizeAppleHealthWorkout
+  normalizeAppleHealthWorkout,
+  normalizeAppleHealthWorkoutSamples
 } from './apple-health.normalizer.js';
 
 export type AppleHealthImportResult = SyncCounts & {
@@ -25,7 +28,9 @@ export class AppleHealthImportService {
     private readonly workoutService: WorkoutService,
     private readonly metricRepository: WorkoutMetricRepository,
     private readonly workoutSourceRepository: WorkoutSourceRepository,
-    private readonly syncRepository: DataSyncRepository
+    private readonly syncRepository: DataSyncRepository,
+    private readonly splitService?: WorkoutSplitService,
+    private readonly workoutAnalysisService?: WorkoutAnalysisService
   ) {}
 
   async import(input: AppleHealthImportInput): Promise<AppleHealthImportResult> {
@@ -70,8 +75,13 @@ export class AppleHealthImportService {
       }
 
       for (const workoutPayload of input.workouts) {
-        const { heartRateSamples, ...workoutRawPayload } = workoutPayload;
+        const {
+          heartRateSamples: _legacyHeartRateSamples,
+          samples: _samples,
+          ...workoutRawPayload
+        } = workoutPayload;
         const normalized = normalizeAppleHealthWorkout(workoutPayload);
+        const workoutSamples = normalizeAppleHealthWorkoutSamples(workoutPayload);
 
         const linkedWorkoutId = await this.workoutSourceRepository.findWorkoutId(
           'apple_health',
@@ -114,11 +124,26 @@ export class AppleHealthImportService {
         counts.workoutsProcessed += 1;
 
         counts.metricSamplesProcessed +=
-          await this.metricRepository.upsertAppleHealthHeartRateSamples(
+          await this.metricRepository.upsertAppleHealthSamples(
             workout.id,
             workoutPayload.startedAt,
-            heartRateSamples
+            workoutSamples
           );
+
+        if (
+          this.splitService &&
+          workoutSamples.some((sample) =>
+            ['heart_rate', 'distance', 'running_speed'].includes(sample.metric)
+          )
+        ) {
+          await this.splitService.recalculateKilometreSplits(workout.id);
+        }
+
+        // Persist deterministic calculated metrics after sample/split changes. Trend reads
+        // can then aggregate compact snapshots instead of rescanning raw HealthKit series.
+        if (this.workoutAnalysisService) {
+          await this.workoutAnalysisService.recalculateSnapshot(workout.id);
+        }
       }
 
       await this.syncRepository.complete(sync.id, counts);
