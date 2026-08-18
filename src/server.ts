@@ -10,6 +10,8 @@ const app = await buildApp({
   profileId: env.FITNESS_PROFILE_ID,
   corsOrigin: env.CORS_ORIGIN,
   appleHealthIngestApiKey: env.APPLE_HEALTH_INGEST_API_KEY,
+  openAIApiKey: env.OPENAI_API_KEY,
+  openAICoachModel: env.OPENAI_COACH_MODEL,
   logLevel: env.LOG_LEVEL
 });
 
@@ -23,10 +25,7 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 try {
-  await app.listen({
-    host: env.HOST,
-    port: env.PORT
-  });
+  await app.listen({ host: env.HOST, port: env.PORT });
 } catch (error) {
   app.log.error(error);
   process.exit(1);

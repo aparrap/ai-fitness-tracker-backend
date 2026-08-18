@@ -19,19 +19,14 @@ export class WorkoutRepository {
       .from('workouts')
       .select('*')
       .eq('profile_id', this.profileId)
+      .is('deleted_at', null)
       .order('started_on', { ascending: false })
       .limit(limit);
 
-    if (activityType) {
-      query = query.eq('activity_type', activityType);
-    }
+    if (activityType) query = query.eq('activity_type', activityType);
 
     const { data, error } = await query;
-
-    if (error) {
-      throw new RepositoryError('Failed to load workouts', error.message);
-    }
-
+    if (error) throw new RepositoryError('Failed to load workouts', error.message);
     return data ?? [];
   }
 
@@ -47,18 +42,16 @@ export class WorkoutRepository {
         .from('workouts')
         .select('*')
         .eq('profile_id', this.profileId)
+        .is('deleted_at', null)
         .gte('started_on', params.startedOnOrAfter)
         .lte('started_on', params.startedOnOrBefore)
         .order('started_on', { ascending: true })
         .order('started_at', { ascending: true, nullsFirst: true })
         .range(offset, offset + WORKOUT_PAGE_SIZE - 1);
 
-      if (params.activityType) {
-        query = query.eq('activity_type', params.activityType);
-      }
+      if (params.activityType) query = query.eq('activity_type', params.activityType);
 
       const { data, error } = await query;
-
       if (error) {
         throw new RepositoryError('Failed to load workouts by date range', error.message);
       }
@@ -77,16 +70,11 @@ export class WorkoutRepository {
       .select('*')
       .eq('profile_id', this.profileId)
       .eq('id', id)
+      .is('deleted_at', null)
       .maybeSingle();
 
-    if (error) {
-      throw new RepositoryError('Failed to load workout', error.message);
-    }
-
-    if (!data) {
-      throw new NotFoundError(`Workout ${id} was not found`);
-    }
-
+    if (error) throw new RepositoryError('Failed to load workout', error.message);
+    if (!data) throw new NotFoundError(`Workout ${id} was not found`);
     return data;
   }
 
@@ -101,31 +89,27 @@ export class WorkoutRepository {
       .select('*')
       .eq('profile_id', this.profileId)
       .eq('activity_type', params.activityType)
-      .eq('started_on', params.startedOn);
+      .eq('started_on', params.startedOn)
+      .is('deleted_at', null);
 
     if (error) {
       throw new RepositoryError('Failed to search for duplicate workout', error.message);
     }
 
-    const candidates = data ?? [];
-
-    const scored = candidates
+    const scored = (data ?? [])
       .map((candidate) => {
         const durationDifference =
           params.durationSeconds != null && candidate.duration_seconds != null
             ? Math.abs(candidate.duration_seconds - params.durationSeconds)
             : 0;
-
         const distanceDifference =
           params.distanceM != null && candidate.distance_m != null
             ? Math.abs(candidate.distance_m - params.distanceM)
             : 0;
-
         const durationCompatible =
           params.durationSeconds == null ||
           candidate.duration_seconds == null ||
           durationDifference <= 180;
-
         const distanceCompatible =
           params.distanceM == null ||
           candidate.distance_m == null ||
@@ -152,26 +136,33 @@ export class WorkoutRepository {
       .select('*')
       .single();
 
-    if (error) {
-      throw new RepositoryError('Failed to update workout', error.message);
-    }
-
+    if (error) throw new RepositoryError('Failed to update workout', error.message);
     return data;
+  }
+
+  async softDelete(id: string): Promise<boolean> {
+    const now = new Date().toISOString();
+    const { data, error } = await this.supabase
+      .from('workouts')
+      .update({ deleted_at: now, updated_at: now })
+      .eq('profile_id', this.profileId)
+      .eq('id', id)
+      .is('deleted_at', null)
+      .select('id')
+      .maybeSingle();
+
+    if (error) throw new RepositoryError('Failed to soft-delete workout', error.message);
+    return data !== null;
   }
 
   async upsert(input: WorkoutInsert): Promise<WorkoutRow> {
     const { data, error } = await this.supabase
       .from('workouts')
-      .upsert(input, {
-        onConflict: 'profile_id,source_provider,source_record_id'
-      })
+      .upsert(input, { onConflict: 'profile_id,source_provider,source_record_id' })
       .select('*')
       .single();
 
-    if (error) {
-      throw new RepositoryError('Failed to save workout', error.message);
-    }
-
+    if (error) throw new RepositoryError('Failed to save workout', error.message);
     return data;
   }
 }

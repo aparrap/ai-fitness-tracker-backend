@@ -2,11 +2,7 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 import type { FitnessSupabaseClient } from './lib/supabase.js';
-import {
-  NotFoundError,
-  RepositoryError,
-  UnauthorizedError
-} from './shared/errors.js';
+import { NotFoundError, RepositoryError, UnauthorizedError } from './shared/errors.js';
 import { WeightRepository } from './modules/weights/weight.repository.js';
 import { WeightService } from './modules/weights/weight.service.js';
 import { registerWeightRoutes } from './modules/weights/weight.routes.js';
@@ -24,6 +20,10 @@ import { WorkoutAnalysisRepository } from './modules/fitness-analytics/workout-a
 import { WorkoutAnalysisService } from './modules/fitness-analytics/workout-analysis.service.js';
 import { RunningTrendService } from './modules/fitness-analytics/running-trend.service.js';
 import { registerFitnessAnalyticsRoutes } from './modules/fitness-analytics/fitness-analytics.routes.js';
+import { CoachingRepository } from './modules/coaching/coaching.repository.js';
+import { OpenAIWorkoutCoachClient } from './modules/coaching/openai-coach.client.js';
+import { WorkoutCoachingService } from './modules/coaching/workout-coaching.service.js';
+import { registerCoachingRoutes } from './modules/coaching/coaching.routes.js';
 import { DataSyncRepository } from './modules/syncs/data-sync.repository.js';
 import { WorkoutSourceRepository } from './modules/workout-sources/workout-source.repository.js';
 import { AppleHealthImportService } from './integrations/apple-health/apple-health.import.service.js';
@@ -34,15 +34,15 @@ export type BuildAppOptions = {
   profileId: string;
   corsOrigin: string;
   appleHealthIngestApiKey: string;
+  openAIApiKey: string | undefined;
+  openAICoachModel: string;
   logLevel?: string;
 };
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: 15 * 1024 * 1024,
-    logger: {
-      level: options.logLevel ?? 'info'
-    }
+    logger: { level: options.logLevel ?? 'info' }
   });
 
   await app.register(cors, {
@@ -57,20 +57,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const metricRepository = new WorkoutMetricRepository(options.supabase);
   const splitRepository = new WorkoutSplitRepository(options.supabase);
   const analysisRepository = new WorkoutAnalysisRepository(options.supabase);
+  const coachingRepository = new CoachingRepository(options.supabase, options.profileId);
   const syncRepository = new DataSyncRepository(options.supabase, options.profileId);
-  const workoutSourceRepository = new WorkoutSourceRepository(
-    options.supabase,
-    options.profileId
-  );
+  const workoutSourceRepository = new WorkoutSourceRepository(options.supabase, options.profileId);
 
   const weightService = new WeightService(weightRepository, options.profileId);
   const workoutService = new WorkoutService(workoutRepository, options.profileId);
   const statsService = new StatsService(weightRepository, workoutRepository);
-  const splitService = new WorkoutSplitService(
-    workoutService,
-    metricRepository,
-    splitRepository
-  );
+  const splitService = new WorkoutSplitService(workoutService, metricRepository, splitRepository);
   const workoutAnalysisService = new WorkoutAnalysisService(
     workoutService,
     metricRepository,
@@ -82,6 +76,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     workoutAnalysisService,
     analysisRepository
   );
+  const coachClient = new OpenAIWorkoutCoachClient(
+    options.openAIApiKey,
+    options.openAICoachModel
+  );
+  const coachingService = new WorkoutCoachingService(
+    coachClient,
+    coachingRepository,
+    runningTrendService
+  );
   const appleHealthImportService = new AppleHealthImportService(
     weightService,
     workoutService,
@@ -89,24 +92,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     workoutSourceRepository,
     syncRepository,
     splitService,
-    workoutAnalysisService
+    workoutAnalysisService,
+    coachingService
   );
 
   app.get('/health', async () => ({
     status: 'ok',
     service: 'ai-fitness-tracker-backend',
-    version: '0.3.0'
+    version: '0.4.0',
+    coaching: coachClient.enabled ? 'enabled' : 'disabled'
   }));
 
   await registerWeightRoutes(app, weightService);
   await registerWorkoutRoutes(app, workoutService);
   await registerWorkoutMetricRoutes(app, workoutService, metricRepository);
   await registerWorkoutSplitRoutes(app, workoutService, splitService);
-  await registerFitnessAnalyticsRoutes(
-    app,
-    workoutAnalysisService,
-    runningTrendService
-  );
+  await registerFitnessAnalyticsRoutes(app, workoutAnalysisService, runningTrendService);
+  await registerCoachingRoutes(app, workoutService, coachingService);
   await registerStatsRoutes(app, statsService);
   await registerAppleHealthRoutes(
     app,
@@ -117,45 +119,21 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
-      return reply.code(400).send({
-        error: 'validation_error',
-        message: 'Request validation failed',
-        details: error.issues
-      });
+      return reply.code(400).send({ error: 'validation_error', message: 'Request validation failed', details: error.issues });
     }
-
     if (error instanceof UnauthorizedError) {
-      return reply.code(401).send({
-        error: 'unauthorized',
-        message: error.message
-      });
+      return reply.code(401).send({ error: 'unauthorized', message: error.message });
     }
-
     if (error instanceof NotFoundError) {
-      return reply.code(404).send({
-        error: 'not_found',
-        message: error.message
-      });
+      return reply.code(404).send({ error: 'not_found', message: error.message });
     }
-
     if (error instanceof RepositoryError) {
-      request.log.error(
-        { err: error, causeMessage: error.causeMessage },
-        'Repository operation failed'
-      );
-
-      return reply.code(500).send({
-        error: 'database_error',
-        message: error.message
-      });
+      request.log.error({ err: error, causeMessage: error.causeMessage }, 'Repository operation failed');
+      return reply.code(500).send({ error: 'database_error', message: error.message });
     }
 
     request.log.error({ err: error }, 'Unhandled request error');
-
-    return reply.code(500).send({
-      error: 'internal_server_error',
-      message: 'An unexpected error occurred'
-    });
+    return reply.code(500).send({ error: 'internal_server_error', message: 'An unexpected error occurred' });
   });
 
   return app;

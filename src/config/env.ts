@@ -10,6 +10,8 @@ const envSchema = z.object({
   SUPABASE_SECRET_KEY: z.string().min(1),
   FITNESS_PROFILE_ID: z.uuid(),
   APPLE_HEALTH_INGEST_API_KEY: z.string().min(32),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_COACH_MODEL: z.string().min(1).default('gpt-5.6-luna'),
   CORS_ORIGIN: z.string().default('http://localhost:3001')
 });
 
